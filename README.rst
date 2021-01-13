@@ -27,24 +27,18 @@ Requirements
 Options
 =======
 
-
--i id		Gather statistics from named interface (ie -i eth0).
--d			Run in background (daemonise).
--nsa		Scale network graphs against highest speed recorded.  The default is to scale against the highest peak in the current graph.
--h			Show help
--r seconds	Set the refresh interval to seconds The seconds must be between 1 and 300. (ie -r 20)
--u			Display unicore graphs only on the CPU screen.
--t id		Force to monitor temperature sensor id on start (ie -t 1). 
-			The id should point to sysfs path /sys/class/hwmon/hwmon[id]/device/temp1_input. 
-			Default the sensor id is auto-detected.
--f id		Force to monitor fan speed sensor id on start (ie -f 1). The id should point 
-			to sysfs path /sys/class/hwmon/hwmon[id]/device/fan1_input. 
-			Default the sensor id is auto-detected.
--df			Disable monitoring CPUs frequencies.
--ir			Enable the bottom info bar content rotate cycle over all available sensors.
--vc			The cpu cores will be calculated every time (for systems with the cpu hotplug).
--gt id		Show temperature [id] in place of the maximal one on the Summary Screen with 
-			the option -gt id ie -gt 1. The id should point to sysfs path /sys/class/hwmon/hwmon../device/temp[id]_input
+|	``-i id``: Gather statistics from named interface (ie -i eth0).
+|	``-d``: Run in background (daemonise).
+|	``-nsa``: Scale network graphs against highest speed recorded.  The default is to scale against the highest peak in the current graph
+|	``-h``: Show help.
+|	``-r seconds``: Set the refresh interval to seconds. The seconds must be between 1 and 300 (ie -r 20).
+|	``-u``: Display unicore graphs only on the CPU screen. 
+|	``-t id``: Force to monitor temperature sensor id on start (ie -t 1). The id should point to sysfs path */sys/class/hwmon/hwmon<id>/device/temp1_input*. Default the sensor id is auto-detected.
+|	``-f id``: Force to monitor fan speed sensor id on start (ie -f 1). The id should point to sysfs path */sys/class/hwmon/hwmon<id>/device/fan1_input*. Default the sensor id is auto-detected.
+|	``-df``: Disable monitoring CPUs frequencies.
+|	``-ir``: Enable the bottom info bar content rotate cycle over all available sensors.
+|	``-vc``: The cpu cores will be calculated every time (for systems with the cpu hotplug).
+|	``-gt id``: Show temperature <id> in place of the maximal one on the summary screen with the option -gt <id> (ie -gt 1). The id should point to sysfs path */sys/class/hwmon/hwmon../device/temp<id>_input*.
 
 =====
 Usage
@@ -52,10 +46,10 @@ Usage
 
 Once running, the separate screens can be switched to as follows:
 
-L2: Previous Screen
-L3: Next Screen
-L4: Alternative Screen (Doesn't work on Swap, Memory and Battery Screen)
-L5: Bottom Info bar mode
+|	``L2``: Previous Screen
+|	``L3``: Next Screen
+|	``L4``: Alternative Screen (Doesn't work on Swap, Memory and Battery Screen)	
+|	``L5``: Bottom Info bar mode	
 
 =============
 How to donate
