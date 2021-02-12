@@ -1,4 +1,4 @@
 #!/bin/sh
 exec 2>&1
 sv start g15daemon || ext 1
-exec g15stats -d
+exec g15stats 
