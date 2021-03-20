@@ -1,7 +1,7 @@
 AC_INIT([g15stats],[3.0],[menelkir@itroll.org])
 
 PACKAGE=g15stats
-VERSION=3.0
+VERSION=3.0.1
 AC_PREFIX_DEFAULT(/usr)
 AC_CONFIG_AUX_DIR(config)
 AM_INIT_AUTOMAKE($PACKAGE, $VERSION)
