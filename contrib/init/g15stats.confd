@@ -5,9 +5,9 @@
 IFACE="eth0"
 
 # Please see g15stats --help for meanings
-#TEMP_INPUT=1
-#GLOBAL_TEMP_INPUT=1
-#FAN_INPUT=1
+TEMP_INPUT=1
+GLOBAL_TEMP_INPUT=1
+FAN_INPUT=1
 
 # please see g15stats --help for all options
 # As of 1.9.7, the options where:

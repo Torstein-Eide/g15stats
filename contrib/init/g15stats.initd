@@ -6,7 +6,7 @@ PIDFILE=/var/run/${SVCNAME}.pid
 
 depend() {
 	need g15daemon
-        after xdm
+	after display-manager
 }
 
 start() {
