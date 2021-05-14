@@ -1,0 +1,14 @@
+[main]
+@type = classic, oneshot
+@name = g15stats
+@description = "g15stats"
+@depends = ()
+@options = ( log env )
+    
+[start]
+@build = auto,custom
+@execute = ( g15stats -d )
+    
+[stop]
+@build = auto,custom
+@execute = ( g15stats -k )
