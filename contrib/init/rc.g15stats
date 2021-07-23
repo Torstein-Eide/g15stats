@@ -1,0 +1,25 @@
+#!/bin/sh
+
+. /etc/rc.subr
+
+case $1 in
+        start)
+                msg "Starting g15stats..."
+                start_daemon /usr/bin/g15stats -d
+                ;;
+        stop)
+                msg "Stopping g15stats..."
+                stop_daemon /usr/bin/g15stats 
+                ;;
+        restart)
+                $0 stop
+                sleep 1
+                $0 start
+                ;;
+        status)
+                status_daemon /usr/bin/g15stats
+                ;;
+        *)
+                echo "usage: $0 [start|stop|restart|status]"
+                ;;
+esac
