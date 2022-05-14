@@ -3,7 +3,7 @@ PORTVERSION=	3.0.3
 CATEGORIES=	sysutils
 MASTER_SITES=   https://gitlab.com/menelkir/${PORTNAME}/-/archive/${PORTVERSION}/
 
-MAINTAINER=	menelkir@itroll.org
+MAINTAINER=	dmenelkir@gmail.com
 COMMENT=	Resource monitor for G15daemon
 
 LICENSE=	GPLv2

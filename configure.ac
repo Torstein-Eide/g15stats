@@ -1,4 +1,4 @@
-AC_INIT([g15stats],[3.0],[menelkir@itroll.org])
+AC_INIT([g15stats],[3.0],[dmenelkir@gmail.com])
 
 PACKAGE=g15stats
 VERSION=3.0.1
