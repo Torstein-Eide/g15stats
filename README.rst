@@ -50,14 +50,3 @@ Once running, the separate screens can be switched to as follows:
 |	``L3``: Next Screen
 |	``L4``: Alternative Screen (Doesn't work on Swap, Memory and Battery Screen)	
 |	``L5``: Bottom Info bar mode	
-
-=============
-How to donate
-=============
-
-If you find this repo useful (don't forget to pay a visit to the related
-repos too), you can buy me a beer:
-
-:BTC: 3ECzX5UhcFSRv6gBBYLNBc7zGP9UA5Ppmn
-
-:ETH: 0x7E17Ac09Fa7e6F80284a75577B5c1cbaAD566C1c
