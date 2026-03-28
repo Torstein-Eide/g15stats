@@ -31,6 +31,7 @@ CMakeUserPresets.json
 *.exe     # Executables (Windows)
 *.dll     # Dynamic libraries (Windows)
 *.obj     # Object files (Windows)
+.*
 
 # Optional: Ignore the entire build directory if all build outputs are placed there
 # out/
@@ -54,6 +55,8 @@ config.status
 config.cache
 confdefs.h
 config
+autom4te.cache/    
+
 
 # Automake generated
 compile
