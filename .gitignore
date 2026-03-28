@@ -1,0 +1,56 @@
+# Build artifacts
+*.o
+*.lo
+*.la
+*.a
+*.so
+*.la
+libtool
+.libs/
+.deps/
+
+# Compiled binary
+g15stats
+
+# Autotools generated files
+Makefile
+Makefile.in
+Makefile.*
+aclocal.m4
+configure
+configure~
+config.h
+config.h.in~
+config.h~
+config.log
+config.status
+config.cache
+confdefs.h
+
+# Automake generated
+compile
+config.guess
+config.sub
+depcomp
+install-sh
+missing
+mkinstalldirs
+ltmain.sh
+
+# Editor files
+*~
+*.swp
+*.swo
+*.bak
+*.orig
+
+# IDE
+.vscode/
+.idea/
+*.project
+*.cproject
+*.settings/
+
+# OS files
+.DS_Store
+Thumbs.db
