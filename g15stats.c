@@ -2245,6 +2245,8 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
         }
         print_label(canvas, tmpstr, text_shift * id);
 
+        id++;
+        cur_shift += shift;
     }
     if ((have_temp) || (have_fan)) {
         g15_stats_info sensors[NUM_PROBES];
@@ -2255,7 +2257,7 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
 
             count = get_sensors(sensors, SCREEN_TEMP, sensor_type_temp, sensor_lost_temp, sensor_temp_id);
             if ((count) && (have_temp)) {
-                draw_summary_sensors_logic(canvas, tmpstr, sensors, "TEM %3.f\xb0", text_shift * id, y1, y2, move, cur_shift, shift, count, temp_tot_cur, temp_tot_max);
+                draw_summary_sensors_logic(canvas, tmpstr, sensors, "TEM %3.0f\xb0", text_shift * id, y1, y2, move, cur_shift, shift, count, temp_tot_cur, temp_tot_max);
                 id++;
                 cur_shift += shift;
             }
@@ -2270,7 +2272,7 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
                 count = 0;
             }
             if ((count) && (have_fan)) {
-                draw_summary_sensors_logic(canvas, tmpstr, sensors, "RPM%5.f", text_shift * id, y1, y2, move, cur_shift, shift, count, fan_tot_cur, fan_tot_max);
+                draw_summary_sensors_logic(canvas, tmpstr, sensors, "RPM%5.0f", text_shift * id, y1, y2, move, cur_shift, shift, count, fan_tot_cur, fan_tot_max);
                 id++;
                 cur_shift += shift;
             }
@@ -2288,7 +2290,11 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
 
         drawAll_both(canvas, cur_shift + y1 + move, cur_shift + y2 + move, swap_used, swap_total, swap_total - swap_used, swap_total);
 
-        sprintf(tmpstr, "Swp %3u%%", (unsigned int) (((float) swap_used / (float) swap_total)*100));
+        if (swap_total > 0) {
+            sprintf(tmpstr, "Swp %3u%%", (unsigned int) (((float) swap_used / (float) swap_total)*100));
+        } else {
+            sprintf(tmpstr, "Swp  --%%");
+        }
         print_label(canvas, tmpstr, text_shift * id);
 
     }
@@ -3063,8 +3069,8 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
                         move    = 1;
                         break;
                 }
-                        height  = 8;
-                }
+                height  = 8;
+            }
                 
             shift   = height + 1;
             shift2  = (2 * shift);
