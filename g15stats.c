@@ -209,7 +209,6 @@ static const char *screen_name(int screen_id) {
         case SCREEN_SUMMARY: return "SUMMARY";
         case SCREEN_CPU: return "CPU LOAD";
         case SCREEN_CPU2: return "CPU LOAD2";
-        case SCREEN_FREQ: return "CPU FREQ";
         case SCREEN_FREQ_AGG: return "CPU FREQ AGG";
         case SCREEN_MEM: return "MEMORY";
         case SCREEN_SWAP: return "SWAP";
@@ -262,8 +261,6 @@ static const char *mode_description(int screen_id, int mode_value) {
             return mode_value ? "CPU2: vertical bars" : "CPU2: horizontal bars";
         case SCREEN_CPU:
             return mode_value ? "CPU: detailed bars" : "CPU: simple bars";
-        case SCREEN_FREQ:
-            return mode_value ? "FREQ: freq + load" : "FREQ: load only";
         default:
             return mode_value ? "Mode: 1" : "Mode: 0";
     }
@@ -1254,7 +1251,7 @@ void draw_cpu_screen_unicore_logic(g15canvas *canvas, glibtop_cpu cpu, char *tmp
 
         sprintf(tmpstr,"CPU %3.f%%",((float)(b_total-b_idle)/(float)b_total)*100);
         print_label(canvas, tmpstr, 0);
-    } else if ((cycle == SCREEN_FREQ) && (mode[SCREEN_FREQ]) && (have_freq)) {
+    } else if ((cycle == SCREEN_FREQ_AGG) && (mode[SCREEN_FREQ_AGG]) && (have_freq)) {
         print_vert_label(canvas, "FREQ");
     } else {
         print_vert_label(canvas, "Idle");
@@ -1893,9 +1890,6 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
                 draw_cpu_screen_load2(canvas, cpu, tmpstr);
             }
             return;
-        case SCREEN_FREQ   :
-            draw_cpu_screen_unicore_logic(canvas, cpu, tmpstr, 0, 0, 0);
-            break;
         case SCREEN_FREQ_AGG:
             draw_freq_screen_aggregate(canvas, tmpstr);
             return;
@@ -1908,18 +1902,10 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
     int freq_cur = 1, freq_total = 1;
     int freq_sum = 0;
 
-    float result;
-
     int spacer = 1;
     int height = 9;
     int move   = 0;
     switch (cycle) {
-        case    SCREEN_FREQ    :
-            if(ncpu > 11){
-                spacer = 0;
-            }
-            height = 36;
-            break;
         case    SCREEN_CPU :
             if(ncpu > 4){
                 spacer = 0;
@@ -2006,44 +1992,6 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
         y2 = y1 + height - 1;
 
         switch (cycle) {
-            case SCREEN_FREQ:
-                if ((mode[SCREEN_FREQ]) && (have_freq)) {
-                    freq_cur = get_cpu_freq_cur(core);
-                    if (core < 6) {
-                        result = ((float) (b_total[core] - b_idle[core]) / (float) b_total[core])*100;
-                        if (result < 100.0) {
-                            sprintf(tmpstr, "%2.f%% %s", result, show_hertz_short(freq_cur));
-                        } else {
-                            sprintf(tmpstr, "%3.f%%%s", result, show_hertz_short(freq_cur));
-                        }
-                        if (ncpu < 5) {
-                            g15r_renderString(canvas, (unsigned char*) tmpstr, 0, G15_TEXT_MED, 1, y1 + 1);
-                        } else {
-                            g15r_renderString(canvas, (unsigned char*) tmpstr, 0, G15_TEXT_SMALL, 1, core * 6);
-                        }
-                    }
-                    freq_total = get_cpu_freq_max(core);
-                    drawBar_both(canvas, y1, y2, freq_cur, freq_total, freq_total - freq_cur, freq_total);
-                    y1 = 0;
-                } else {
-                    if (core < 6) {
-                        if (have_freq) {
-                            freq_cur = get_cpu_freq_cur(core);
-                            sprintf(tmpstr, "%s%3.f%%", show_hertz_short(freq_cur), ((float) (b_total[core] - b_idle[core]) / (float) b_total[core])*100);
-                        } else {
-                            sprintf(tmpstr, "CPU%.f%3.f%%", (float) core, ((float) (b_total[core] - b_idle[core]) / (float) b_total[core])*100);
-                        }
-                        if (ncpu < 5) {
-                            g15r_renderString(canvas, (unsigned char*) tmpstr, 0, G15_TEXT_MED, 1, y1 + 1);
-                        } else {
-                            g15r_renderString(canvas, (unsigned char*) tmpstr, 0, G15_TEXT_SMALL, 1, core * 6);
-                        }
-                    }
-                    current_value = b_total[core] - b_idle[core];
-                    drawBar_both(canvas, y1, y2, current_value, b_total[core], b_total[core] - current_value, b_total[core]);
-                    y1 = 0;
-                }
-                break;
             case SCREEN_CPU:
                 if (mode[cycle]) {
                     divider = 9 / ncpu;
@@ -2451,10 +2399,9 @@ void calc_info_cycle(void) {
             case SCREEN_CPU2:
                 info_cycle = SCREEN_CPU2;
                 break;
-            case SCREEN_FREQ:
             case SCREEN_FREQ_AGG:
                 if (have_freq) {
-                    info_cycle = SCREEN_FREQ;
+                    info_cycle = SCREEN_FREQ_AGG;
                     break;
                 }
                 info_cycle_timer += info_pause;
@@ -2516,9 +2463,6 @@ void print_info_label(g15canvas *canvas, char *tmpstr) {
         case SCREEN_CPU :
         case SCREEN_CPU2:
             print_sys_load_info(canvas, tmpstr);
-            break;
-        case SCREEN_FREQ   :
-            print_freq_info(canvas, tmpstr);
             break;
         case SCREEN_FREQ_AGG:
             break;
@@ -3074,7 +3018,6 @@ int main(int argc, const char *argv[]){
             case SCREEN_SUMMARY:
             case SCREEN_CPU:
             case SCREEN_CPU2:
-            case SCREEN_FREQ:
             case SCREEN_FREQ_AGG:
                 draw_cpu_screen_multicore(canvas, tmpstr, unicore);
                 break;

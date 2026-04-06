@@ -16,7 +16,7 @@
 - `configure` - Generated configure script
 
 ### Documentation
-- `README.rst` - Project description and usage instructions
+- `README.md` - Project description and usage instructions
 - `docs/` - MkDocs documentation sources
 - `.AGENTS/mkdocs_material.md` - MkDocs Material workflow notes
 - `.AGENTS/mkdocs_material_reference.md` - MkDocs Material reference cheatsheet

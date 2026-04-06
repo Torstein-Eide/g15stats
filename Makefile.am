@@ -17,7 +17,7 @@ noinst_HEADERS = g15stats.h
 
 # Documentation installation directory and files
 docdir = @docdir@
-doc_DATA = README.rst ChangeLog AUTHORS NEWS COPYING
+doc_DATA = README.md ChangeLog AUTHORS NEWS COPYING
 
 # Libraries to link against
 g15stats_LDADD = $(GTOP_LIBS) $(YAML_LIBS) -lg15daemon_client -lg15render -lpthread -lm -lrt

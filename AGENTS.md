@@ -104,7 +104,7 @@ The application is structured as a single monolithic C program with:
 - Configuration handling through command-line options
 
 ## Documentation
-No inline documentation comments found. User-facing docs are in `README.rst` and `docs/`.
+No inline documentation comments found. User-facing docs are in `README.md` and `docs/`.
 
 ### How to Run a Single Test
 1. Build the project using `make`.
@@ -112,7 +112,7 @@ No inline documentation comments found. User-facing docs are in `README.rst` and
 3. Run the specific test using the appropriate command, typically something like `./test_name`.
 
 ### Code Style and Naming Conventions
-- Follow the guidelines provided in `README.rst` and this file.
+- Follow the guidelines provided in `README.md` and this file.
 - Use consistent naming conventions for functions, variables, and constants.
 
 ### Error Handling and Logging Conventions
