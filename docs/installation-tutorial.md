@@ -3,26 +3,30 @@
 This tutorial walks through a practical Linux setup for G15Stats, including
 sensor selection and a systemd service.
 
+!!! tip
+    If you only need the minimal build steps, use the shorter
+    [Installation](installation.md) page.
+
 ## 1) Install dependencies
 
-### Debian/Ubuntu
+=== "Debian/Ubuntu"
 
-```bash
-sudo apt-get update
-sudo apt-get install libgtop2-dev libg15daemon-client-dev libg15render-dev
-```
+    ```bash
+    sudo apt-get update
+    sudo apt-get install libgtop2-dev libg15daemon-client-dev libg15render-dev
+    ```
 
-### Fedora/RHEL
+=== "Fedora/RHEL"
 
-```bash
-sudo dnf install libgtop2-devel libg15daemon-client-devel libg15render-devel
-```
+    ```bash
+    sudo dnf install libgtop2-devel libg15daemon-client-devel libg15render-devel
+    ```
 
-### Arch Linux
+=== "Arch Linux"
 
-```bash
-sudo pacman -S libgtop libg15daemon libg15render
-```
+    ```bash
+    sudo pacman -S libgtop libg15daemon libg15render
+    ```
 
 ## 2) Build and install
 
@@ -97,6 +101,10 @@ This maps to:
 ## 4) Run as a systemd service
 
 Create `/etc/systemd/system/g15stats.service`:
+
+!!! warning
+    Replace `eth0` in `ExecStart` with your real interface name
+    (for example `enp3s0` or `wlan0`).
 
 ```ini
 [Unit]

@@ -88,7 +88,9 @@ This is achieved with `mkdocs`.
 
 Build from the G15Stats base directory (for example: `cd ~/git_work/g15stats`).
 
-G15Stats uses `docs/requirements.txt` to manage the Python dependencies for building the docs. You can use either `uv`, `venv + pip` or `docker` to set up the environment and build the documentation.
+G15Stats uses `pyproject.toml` to manage the Python dependencies for building
+the docs. You can use either `uv`, `venv + pip` or `docker` to set up the
+environment and build the documentation.
 
 === "uv"
 
@@ -98,7 +100,13 @@ G15Stats uses `docs/requirements.txt` to manage the Python dependencies for buil
     1. Create the environment and install dependencies:
 
     ```bash
-    uv pip install -r docs/requirements.txt
+    uv sync
+    ```
+
+    To use the lock file exactly (fail if it would change):
+
+    ```bash
+    uv sync --frozen
     ```
 
     2. Build the docs:
@@ -115,16 +123,16 @@ G15Stats uses `docs/requirements.txt` to manage the Python dependencies for buil
 
 === "venv + pip"
 
-    To build the docs with `venv` and `pip`, you will need to have Python installed on your machine.
-    Make a new virtual environment and activate it:
+    To build the docs with `venv` and `pip`, you will need Python installed on
+    your machine. Create a virtual environment and activate it:
 
     ```bash
-    python -m venv .venv
-    source .venv/bin/activate
+    python -m venv .python_venvs/docs
+    source .python_venvs/docs/bin/activate
     ```
 
     ```bash
-    pip install -r docs/requirements.txt
+    pip install -e .
     ```
 
     Build the docs:

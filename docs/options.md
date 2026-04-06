@@ -2,6 +2,10 @@
 
 G15Stats supports various command-line options to customize its behavior.
 
+!!! tip
+    You can combine most options, for example:
+    `g15stats -d -i eth0 -r 15 -ir`
+
 ## Options Reference
 
 | Option | Description |
@@ -20,6 +24,15 @@ G15Stats supports various command-line options to customize its behavior.
 | `-gt <id>` | Show temperature `<id>` in place of the maximal one on the summary screen. The id should point to sysfs path `/sys/class/hwmon/hwmon<id>/device/temp<id>_input` |
 
 ## Detailed Options
+
+## Common profiles
+
+| Profile | Command |
+|---|---|
+| Quiet background monitoring | `g15stats -d -r 20` |
+| Network-focused monitoring | `g15stats -i eth0 -nsa` |
+| Manual sensor selection | `g15stats -t 1 -f 1 -gt 1` |
+| CPU hotplug aware | `g15stats -vc` |
 
 ### Network Interface Selection (`-i`)
 

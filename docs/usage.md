@@ -2,6 +2,10 @@
 
 ## Basic Usage
 
+!!! note
+    For a full first-time setup with sensors and systemd, see
+    [Installation Tutorial](installation-tutorial.md).
+
 To start G15Stats with default settings:
 
 ```bash
@@ -55,6 +59,12 @@ g15stats
 g15stats -i eth0
 ```
 
+### Use rotating sensor info bar
+
+```bash
+g15stats -ir
+```
+
 ### Custom refresh interval
 
 ```bash
@@ -84,6 +94,15 @@ g15stats -t 1
 ```bash
 g15stats -f 1
 ```
+
+## Common command sets
+
+| Scenario | Command |
+|---|---|
+| Default run | `g15stats` |
+| Background service-like run | `g15stats -d -i eth0 -r 15` |
+| Sensor-focused run | `g15stats -t 1 -f 1 -gt 1` |
+| Hotplug-friendly CPU stats | `g15stats -vc` |
 
 ## Tips
 
