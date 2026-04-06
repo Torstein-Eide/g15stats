@@ -10,6 +10,10 @@ METASOURCES = AUTO
 # Build and install this binary program
 bin_PROGRAMS = g15stats
 
+# Test suite
+TESTS = tests/test_yaml_config.sh
+EXTRA_DIST = $(TESTS)
+
 # Header file used during build, but not installed
 noinst_HEADERS = g15stats.h
 
@@ -18,7 +22,7 @@ docdir = @docdir@
 doc_DATA = README.rst ChangeLog AUTHORS NEWS COPYING
 
 # Libraries to link against
-LIBS = -lg15daemon_client -lg15render -lpthread -lm -lrt
+LIBS = -lg15daemon_client -lg15render -lyaml -lpthread -lm -lrt
 
 # Linker flags for g15stats
 # Note: -avoid-version is usually used for libraries, not programs

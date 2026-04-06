@@ -20,12 +20,13 @@ AC_CHECK_HEADERS(g15daemon_client.h,,AC_MSG_ERROR(["libg15daemon_client (or its 
 AC_CHECK_HEADERS(libg15render.h,,AC_MSG_ERROR(["libg15render (or its devel package) could not be found.  please install it"]))
 
 PKG_CHECK_MODULES(GTOP,libgtop-2.0,,)
+PKG_CHECK_MODULES(YAML,yaml-0.1,,AC_MSG_ERROR(["libyaml (or libyaml-dev) not found. please install it"]))
 AC_ARG_WITH(gtop-includes,AS_HELP_STRING([--with-gtop-includes],[Path to libgtop includes (Autodetect)]),GTOP_CFLAGS="-I$withval",)
 AC_ARG_WITH(gtop-libs,AS_HELP_STRING([--with-gtop-libs],[Path to libgtop libraries (Autodetect)]),GTOP_LIBS="-L$withval -lgtop-2.0 -lglib-2.0",)
 
-CPPFLAGS="$CPPFLAGS $GTOP_CFLAGS"
-CFLAGS="$CPPFLAGS $GTOP_CFLAGS"
-LDFLAGS="$LDFLAGS $GTOP_LIBS"
+CPPFLAGS="$CPPFLAGS $GTOP_CFLAGS $YAML_CFLAGS"
+CFLAGS="$CPPFLAGS $GTOP_CFLAGS $YAML_CFLAGS"
+LDFLAGS="$LDFLAGS $GTOP_LIBS $YAML_LIBS"
 
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT

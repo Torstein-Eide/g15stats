@@ -28,6 +28,7 @@ The following development packages must be installed before compilation:
 | **libgtop** | System statistics | `libgtop2-dev` | `libgtop2-devel` | `libgtop` |
 | **libg15daemon_client** | G15 daemon communication | `libg15daemon-client-dev` | `libg15daemon-client-devel` | `libg15daemon` |
 | **libg15render** | LCD rendering | `libg15render-dev` | `libg15render-devel` | `libg15render` |
+| **libyaml** | YAML config parsing (`/etc/g15plugins/g15stats.yaml`) | `libyaml-dev` | `libyaml-devel` | `libyaml` |
 
 ### Installing Dependencies
 
@@ -35,19 +36,19 @@ The following development packages must be installed before compilation:
 
 ```bash
 sudo apt-get update
-sudo apt-get install libgtop2-dev libg15daemon-client-dev libg15render-dev
+sudo apt-get install libgtop2-dev libg15daemon-client-dev libg15render-dev libyaml-dev
 ```
 
 #### Fedora/RHEL
 
 ```bash
-sudo dnf install libgtop2-devel libg15daemon-client-devel libg15render-devel
+sudo dnf install libgtop2-devel libg15daemon-client-devel libg15render-devel libyaml-devel
 ```
 
 #### Arch Linux
 
 ```bash
-sudo pacman -S libgtop libg15daemon libg15render
+sudo pacman -S libgtop libg15daemon libg15render libyaml
 ```
 
 ## Build Tools

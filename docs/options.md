@@ -2,6 +2,10 @@
 
 G15Stats supports various command-line options to customize its behavior.
 
+Configuration file support is available at
+`/etc/g15plugins/g15stats.yaml`. Command-line options override config file
+values.
+
 !!! tip
     You can combine most options, for example:
     `g15stats -d -i eth0 -r 15 -ir`

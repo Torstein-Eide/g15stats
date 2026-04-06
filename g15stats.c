@@ -31,6 +31,7 @@ This is a simple stats client showing graphs for CPU, MEM & Swap usage, Network 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <libg15.h>
@@ -54,6 +55,7 @@ This is a simple stats client showing graphs for CPU, MEM & Swap usage, Network 
 #include <glibtop/loadavg.h>
 #include <glibtop/uptime.h>
 #include <glibtop/sysinfo.h>
+#include <yaml.h>
 #include "g15stats.h"
 
 int g15screen_fd;
@@ -113,6 +115,172 @@ float fan_tot_max   = 1;
 _Bool net_scale_absolute=0;
 
 pthread_cond_t wake_now = PTHREAD_COND_INITIALIZER;
+
+#define G15STATS_CONFIG_FILE "/etc/g15plugins/g15stats.yaml"
+
+static const char *get_config_file_path(void) {
+    const char *env_path = getenv("G15STATS_CONFIG_FILE");
+
+    if (env_path != NULL && env_path[0] != '\0') {
+        return env_path;
+    }
+
+    return G15STATS_CONFIG_FILE;
+}
+
+static int parse_bool_value(const char *value) {
+    if (value == NULL) {
+        return 0;
+    }
+
+    return (strcasecmp(value, "true") == 0 ||
+            strcasecmp(value, "yes") == 0 ||
+            strcmp(value, "1") == 0 ||
+            strcasecmp(value, "on") == 0);
+}
+
+static void apply_config_value(const char *key,
+                               const char *value,
+                               int *go_daemon,
+                               int *unicore,
+                               unsigned char *interface,
+                               _Bool *nic_enabled) {
+    int parsed;
+
+    if (strcmp(key, "daemon") == 0) {
+        *go_daemon = parse_bool_value(value);
+    } else if (strcmp(key, "unicore") == 0) {
+        *unicore = parse_bool_value(value);
+    } else if (strcmp(key, "net_scale_absolute") == 0) {
+        net_scale_absolute = parse_bool_value(value);
+    } else if (strcmp(key, "disable_freq") == 0) {
+        have_freq = parse_bool_value(value) ? 0 : 2;
+    } else if (strcmp(key, "info_rotate") == 0) {
+        if (parse_bool_value(value)) {
+            submode = 0;
+        }
+    } else if (strcmp(key, "variable_cpu") == 0) {
+        variable_cpu = parse_bool_value(value);
+    } else if (strcmp(key, "interface") == 0) {
+        if (strlen(value) > 0) {
+            strncpy((char *)interface, value, 127);
+            interface[127] = '\0';
+            *nic_enabled = 1;
+        }
+    } else if (strcmp(key, "refresh") == 0) {
+        parsed = atoi(value);
+        if (parsed >= 1 && parsed <= MAX_INTERVAL) {
+            wait_seconds = parsed;
+        }
+    } else if (strcmp(key, "temperature") == 0) {
+        parsed = atoi(value);
+        if (parsed >= 0 && parsed < MAX_SENSOR) {
+            sensor_temp_id = parsed;
+        }
+    } else if (strcmp(key, "global_temp") == 0) {
+        sensor_temp_main = atoi(value);
+    } else if (strcmp(key, "fan") == 0) {
+        parsed = atoi(value);
+        if (parsed >= 0 && parsed < MAX_SENSOR) {
+            sensor_fan_id = parsed;
+        }
+    }
+}
+
+static void load_config_file(int *go_daemon,
+                             int *unicore,
+                             unsigned char *interface,
+                             _Bool *nic_enabled) {
+    yaml_parser_t parser;
+    yaml_event_t event;
+    FILE *fp;
+    int done = 0;
+    int parse_error = 0;
+    int expecting_key = 1;
+    int mapping_depth = 0;
+    char current_key[128] = {0};
+
+    const char *config_file = get_config_file_path();
+
+    fp = fopen(config_file, "r");
+    if (fp == NULL) {
+        return;
+    }
+
+    if (!yaml_parser_initialize(&parser)) {
+        fclose(fp);
+        return;
+    }
+
+    yaml_parser_set_input_file(&parser, fp);
+
+    while (!done) {
+        if (!yaml_parser_parse(&parser, &event)) {
+            fprintf(stderr,
+                    "Warning: invalid YAML in %s at line %lu, column %lu\n",
+                    config_file,
+                    (unsigned long) parser.problem_mark.line + 1,
+                    (unsigned long) parser.problem_mark.column + 1);
+            parse_error = 1;
+            break;
+        }
+
+        switch (event.type) {
+            case YAML_MAPPING_START_EVENT:
+                mapping_depth++;
+                break;
+            case YAML_MAPPING_END_EVENT:
+                if (mapping_depth > 0) {
+                    mapping_depth--;
+                }
+                break;
+            case YAML_SCALAR_EVENT:
+                if (mapping_depth == 1) {
+                    size_t value_len = event.data.scalar.length;
+                    if (expecting_key) {
+                        if (value_len >= sizeof(current_key)) {
+                            value_len = sizeof(current_key) - 1;
+                        }
+                        memcpy(current_key, event.data.scalar.value, value_len);
+                        current_key[value_len] = '\0';
+                        expecting_key = 0;
+                    } else {
+                        char scalar_value[256];
+                        if (value_len >= sizeof(scalar_value)) {
+                            value_len = sizeof(scalar_value) - 1;
+                        }
+                        memcpy(scalar_value, event.data.scalar.value, value_len);
+                        scalar_value[value_len] = '\0';
+                        apply_config_value(current_key,
+                                           scalar_value,
+                                           go_daemon,
+                                           unicore,
+                                           interface,
+                                           nic_enabled);
+                        expecting_key = 1;
+                    }
+                }
+                break;
+            case YAML_STREAM_END_EVENT:
+                done = 1;
+                break;
+            default:
+                break;
+        }
+
+        yaml_event_delete(&event);
+    }
+
+    if (!done && !parse_error) {
+        while (!done && yaml_parser_parse(&parser, &event)) {
+            done = (event.type == YAML_STREAM_END_EVENT);
+            yaml_event_delete(&event);
+        }
+    }
+
+    yaml_parser_delete(&parser);
+    fclose(fp);
+}
 
 unsigned long maxi(unsigned long a, unsigned long b) {
   if(a>b)
@@ -1691,10 +1859,12 @@ int main(int argc, char *argv[]){
     
     int i;
     int go_daemon=0;
-    unsigned char interface[128];
+    unsigned char interface[128] = {0};
     static char tmpstr[MAX_LINES];
     int unicore = 0;
     
+    load_config_file(&go_daemon, &unicore, interface, &have_nic);
+
     for (i=0;i<argc;i++) {
         if(0==strncmp(argv[i],"-d",2)||0==strncmp(argv[i],"--daemon",8)) {
             go_daemon=1;
@@ -1739,6 +1909,7 @@ int main(int argc, char *argv[]){
             printf("--variable-cpu (-vc) the cpu cores will be calculated every time (for systems with the cpu hotplug).\n");
             printf("--refresh [seconds] (-r) set the refresh interval to [seconds] The seconds must be between 1 and 300. ie -r 15\n");
             printf("--disable-freq (-df) disable monitoring CPUs frequencies.\n\n");
+            printf("Config file: %s (CLI options override file values).\n", get_config_file_path());
             return 0;
         }
         if(0==strncmp(argv[i],"-i",2)||0==strncmp(argv[i],"--interface",11)) {

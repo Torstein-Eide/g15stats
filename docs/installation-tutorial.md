@@ -13,19 +13,19 @@ sensor selection and a systemd service.
 
     ```bash
     sudo apt-get update
-    sudo apt-get install libgtop2-dev libg15daemon-client-dev libg15render-dev
+    sudo apt-get install libgtop2-dev libg15daemon-client-dev libg15render-dev libyaml-dev
     ```
 
 === "Fedora/RHEL"
 
     ```bash
-    sudo dnf install libgtop2-devel libg15daemon-client-devel libg15render-devel
+    sudo dnf install libgtop2-devel libg15daemon-client-devel libg15render-devel libyaml-devel
     ```
 
 === "Arch Linux"
 
     ```bash
-    sudo pacman -S libgtop libg15daemon libg15render
+    sudo pacman -S libgtop libg15daemon libg15render libyaml
     ```
 
 ## 2) Build and install
@@ -141,6 +141,26 @@ journalctl -u g15stats.service -b
 - CPU/memory/network pages update on the LCD.
 - Temperature and fan pages show values.
 - `systemctl status g15stats.service` is `active (running)`.
+
+## Config file (optional)
+
+You can define defaults in `/etc/g15plugins/g15stats.yaml`.
+
+```yaml
+daemon: true
+interface: eth0
+refresh: 15
+temperature: 1
+fan: 1
+global_temp: 1
+net_scale_absolute: false
+info_rotate: true
+variable_cpu: false
+disable_freq: false
+unicore: false
+```
+
+Values passed on the command line override values from this config file.
 
 ## 6) Troubleshooting
 
