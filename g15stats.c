@@ -182,6 +182,23 @@ static int get_forced_screen(void) {
     return -1;
 }
 
+static const char *screen_name(int screen_id) {
+    switch (screen_id) {
+        case SCREEN_SUMMARY: return "SUMMARY";
+        case SCREEN_CPU: return "CPU";
+        case SCREEN_FREQ: return "FREQ";
+        case SCREEN_FREQ_AGG: return "FREQ_AGG";
+        case SCREEN_MEM: return "MEM";
+        case SCREEN_SWAP: return "SWAP";
+        case SCREEN_NET: return "NET";
+        case SCREEN_BAT: return "BAT";
+        case SCREEN_TEMP: return "TEMP";
+        case SCREEN_FAN: return "FAN";
+        case SCREEN_NET2: return "NET2";
+        default: return "UNKNOWN";
+    }
+}
+
 static void apply_config_value(const char *key,
                                const char *value,
                                int *go_daemon,
@@ -2114,6 +2131,13 @@ void keyboard_watch(void) {
                             change = 0;
                             break;
                     }
+                    if (debug_enabled) {
+                        fprintf(stderr,
+                                "[g15stats] mode changed: screen=%d (%s) mode=%d\n",
+                                cycle,
+                                screen_name(cycle),
+                                mode[cycle]);
+                    }
                     break;
             }
             if (cycle > MAX_SCREENS) {
@@ -2394,6 +2418,14 @@ int main(int argc, const char *argv[]){
     }
 
     int cycle_old   = cycle;
+    if (debug_enabled) {
+        fprintf(stderr,
+                "[g15stats] current screen: %d (%s), mode=%d, submode=%d\n",
+                cycle,
+                screen_name(cycle),
+                mode[cycle],
+                submode);
+    }
     while(1) {
         if (forced_screen >= SCREEN_SUMMARY) {
             cycle = forced_screen;
@@ -2505,6 +2537,14 @@ int main(int argc, const char *argv[]){
                 cycle = 0;
                 info_cycle  = cycle;
                 break;
+        }
+        if (debug_enabled && cycle_old != cycle) {
+            fprintf(stderr,
+                    "[g15stats] current screen: %d (%s), mode=%d, submode=%d\n",
+                    cycle,
+                    screen_name(cycle),
+                    mode[cycle],
+                    submode);
         }
         cycle_old   = cycle;
         print_info_label(canvas, tmpstr);
