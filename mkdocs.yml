@@ -34,6 +34,7 @@ nav:
   - Options: options.md
   - Screens: screens.md
   - Requirements: requirements.md
+  - Dependencies: DEPENDENCIES.md
   - Contributing: contributing.md
   - Developing:
     - Creating Documentation: Developing/Creating-Documentation.md

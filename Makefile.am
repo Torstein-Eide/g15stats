@@ -20,10 +20,6 @@ doc_DATA = README.rst ChangeLog AUTHORS NEWS COPYING
 # Libraries to link against
 LIBS = -lg15daemon_client -lg15render -lpthread -lm -lrt
 
-# Additional include flags
-# Note: this looks incomplete and may be a leftover
-INCLUDES = -I
-
 # Linker flags for g15stats
 # Note: -avoid-version is usually used for libraries, not programs
 g15stats_LDFLAGS = -avoid-version
