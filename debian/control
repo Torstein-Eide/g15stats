@@ -1,0 +1,19 @@
+Source: g15stats
+Section: utils
+Priority: optional
+Maintainer: Torstein Eide <1884894+Torstein-Eide@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13), pkg-config, libgtop2-dev, libg15daemon-client-dev, libg15render-dev, libyaml-dev
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/Torstein-Eide/g15stats
+
+Package: g15stats
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: LCD system stats monitor for Logitech G15 displays
+ G15Stats displays live system information on Logitech G15 LCD devices.
+ It provides screens for CPU load, memory, swap, network traffic,
+ temperatures, fan speeds, battery state, and CPU frequency.
+ .
+ Configuration is supported via YAML files and command-line options.
+ A user systemd service unit is provided for per-user operation.

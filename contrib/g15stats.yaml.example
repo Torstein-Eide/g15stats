@@ -1,0 +1,30 @@
+# g15stats example configuration
+#
+# Search order:
+# 1) $G15STATS_CONFIG_FILE (if set)
+# 2) ~/.config/g15stats/g15stats.yaml
+# 3) /etc/g15plugins/g15stats.yaml
+#
+# On first run, if neither user nor system config exists,
+# g15stats creates ~/.config/g15stats/g15stats.yaml.
+
+daemon: false
+refresh: 1
+unicore: false
+net_scale_absolute: false
+disable_freq: false
+info_rotate: false
+variable_cpu: false
+debug: false
+screen_overlay: true
+bar_background: false
+temp_filter_bypass: false
+cpu2_min_bar_width: 3
+cpu2_bar_height: 3
+
+# Optional overrides:
+# interface: eth0
+# temperature: 0
+# global_temp: 0
+# fan: 0
+# output_file: /tmp/g15stats.frames

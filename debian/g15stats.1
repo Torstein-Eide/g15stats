@@ -1,0 +1,116 @@
+.TH G15STATS 1 "April 2026" "g15stats 3.0" "User Commands"
+.SH NAME
+g15stats \- display system statistics on Logitech G15 LCD devices
+.SH SYNOPSIS
+.B g15stats
+.RI [ options ]
+.SH DESCRIPTION
+.B g15stats
+shows system statistics on Logitech G15 LCD displays through g15daemon.
+It supports multiple screens including CPU, memory, swap, network,
+temperature, fan, battery, and frequency views.
+.PP
+Configuration is loaded in this order:
+.IP "1." 4
+Environment variable
+.BR G15STATS_CONFIG_FILE
+if set.
+.IP "2." 4
+User config at
+.BR ~/.config/g15stats/g15stats.yaml .
+.IP "3." 4
+System config at
+.BR /etc/g15plugins/g15stats.yaml .
+.PP
+If both user and system config are missing, g15stats creates a default user
+config file at first run.
+.SH OPTIONS
+.TP
+.BR -h , " --help"
+Show help text and exit.
+.TP
+.BR -d , " --daemon"
+Run in background.
+.TP
+.BR -u , " --unicore"
+Show unicore graphs only on CPU screen.
+.TP
+.BR -i " " iface , " --interface " iface
+Monitor network interface
+.IR iface .
+.TP
+.BR -t " " id , " --temperature " id
+Force temperature sensor id.
+.TP
+.BR -gt " " id , " --global-temp " id
+Select summary temperature sensor id.
+.TP
+.BR -f " " id , " --fan " id
+Force fan sensor id.
+.TP
+.BR -nsa , " --net-scale-absolute"
+Scale network graphs against highest seen speed.
+.TP
+.BR -ir , " --info-rotate"
+Enable rotating bottom info bar.
+.TP
+.BR -vc , " --variable-cpu"
+Re-detect CPU core count continuously.
+.TP
+.BR -df , " --disable-freq"
+Disable CPU frequency monitoring.
+.TP
+.BR -r " " seconds , " --refresh " seconds
+Set refresh interval (1..300 seconds).
+.TP
+.BR -o " " path , " --output-file " path
+Write LCD frame data to
+.I path
+instead of sending to g15daemon.
+.TP
+.BR -D , " --debug"
+Enable debug logging to stderr.
+.TP
+.B --bar-background
+Enable bar chart background boxes.
+.TP
+.B --temp-filter-bypass
+Disable temperature moving average filter.
+.TP
+.BI --cpu2-bar-height " pixels"
+Set CPU LOAD2 target bar height (1..33).
+.TP
+.B --no-screen-overlay
+Disable one-refresh overlay after screen changes.
+.SH FILES
+.TP
+.I ~/.config/g15stats/g15stats.yaml
+User config file.
+.TP
+.I /etc/g15plugins/g15stats.yaml
+System config file.
+.TP
+.I /usr/share/doc/g15stats/examples/g15stats.yaml.example
+Sample configuration.
+.SH SYSTEMD USER SERVICE
+The package provides a user unit:
+.BR g15stats.service .
+Enable and start it with:
+.PP
+.B systemctl --user enable --now g15stats.service
+.PP
+The unit runs in foreground mode and uses the user config path above.
+.SH ENVIRONMENT
+.TP
+.B G15STATS_CONFIG_FILE
+Override config file path.
+.TP
+.B G15STATS_PAUSE
+Override refresh pause used internally.
+.TP
+.B G15STATS_FORCE_SCREEN
+Force initial screen index.
+.SH AUTHOR
+Original contributors are listed in
+.BR AUTHORS .
+Current maintainer: Torstein Eide <1884894+Torstein-Eide@users.noreply.github.com>.

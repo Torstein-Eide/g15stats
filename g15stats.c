@@ -33,6 +33,8 @@ This is a simple stats client showing graphs for CPU, MEM & Swap usage, Network 
 #include <stdarg.h>
 #include <string.h>
 #include <strings.h>
+#include <limits.h>
+#include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <dirent.h>
@@ -167,11 +169,122 @@ pthread_cond_t wake_now = PTHREAD_COND_INITIALIZER;
 
 #define G15STATS_CONFIG_FILE "/etc/g15plugins/g15stats.yaml"
 
+static const char *default_user_config_yaml =
+    "# g15stats user configuration\n"
+    "# Generated on first run.\n"
+    "\n"
+    "daemon: false\n"
+    "refresh: 1\n"
+    "unicore: false\n"
+    "net_scale_absolute: false\n"
+    "disable_freq: false\n"
+    "info_rotate: false\n"
+    "variable_cpu: false\n"
+    "debug: false\n"
+    "screen_overlay: true\n"
+    "bar_background: false\n"
+    "temp_filter_bypass: false\n"
+    "cpu2_min_bar_width: 3\n"
+    "cpu2_bar_height: 3\n"
+    "# interface: eth0\n"
+    "# temperature: 0\n"
+    "# global_temp: 0\n"
+    "# fan: 0\n"
+    "# output_file: /tmp/g15stats.frames\n";
+
+static int build_user_config_path(char *path, size_t path_len) {
+    const char *home = getenv("HOME");
+    int written;
+
+    if (path == NULL || path_len == 0 || home == NULL || home[0] == '\0') {
+        return 0;
+    }
+
+    written = snprintf(path,
+                       path_len,
+                       "%s/.config/g15stats/g15stats.yaml",
+                       home);
+    if (written < 0 || (size_t) written >= path_len) {
+        return 0;
+    }
+
+    return 1;
+}
+
+static int ensure_user_config_dir(void) {
+    char path[PATH_MAX];
+    const char *home = getenv("HOME");
+    int written;
+
+    if (home == NULL || home[0] == '\0') {
+        return 0;
+    }
+
+    written = snprintf(path, sizeof(path), "%s/.config", home);
+    if (written < 0 || (size_t) written >= sizeof(path)) {
+        return 0;
+    }
+    if (mkdir(path, 0755) != 0 && errno != EEXIST) {
+        return 0;
+    }
+
+    written = snprintf(path, sizeof(path), "%s/.config/g15stats", home);
+    if (written < 0 || (size_t) written >= sizeof(path)) {
+        return 0;
+    }
+    if (mkdir(path, 0755) != 0 && errno != EEXIST) {
+        return 0;
+    }
+
+    return 1;
+}
+
+static int write_default_user_config(const char *path) {
+    FILE *fp;
+
+    if (path == NULL || path[0] == '\0') {
+        return 0;
+    }
+
+    if (!ensure_user_config_dir()) {
+        return 0;
+    }
+
+    fp = fopen(path, "w");
+    if (fp == NULL) {
+        return 0;
+    }
+
+    if (fputs(default_user_config_yaml, fp) == EOF) {
+        fclose(fp);
+        return 0;
+    }
+
+    fclose(fp);
+    return 1;
+}
+
 static const char *get_config_file_path(void) {
+    static char user_config_path[PATH_MAX];
     const char *env_path = getenv("G15STATS_CONFIG_FILE");
 
     if (env_path != NULL && env_path[0] != '\0') {
         return env_path;
+    }
+
+    if (build_user_config_path(user_config_path, sizeof(user_config_path))) {
+        if (access(user_config_path, R_OK) == 0) {
+            return user_config_path;
+        }
+
+        if (access(G15STATS_CONFIG_FILE, R_OK) != 0) {
+            if (write_default_user_config(user_config_path)) {
+                fprintf(stderr,
+                        "Info: created default config at %s\n",
+                        user_config_path);
+                return user_config_path;
+            }
+        }
     }
 
     return G15STATS_CONFIG_FILE;

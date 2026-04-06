@@ -2,9 +2,15 @@
 
 G15Stats supports various command-line options to customize its behavior.
 
-Configuration file support is available at
-`/etc/g15plugins/g15stats.yaml`. Command-line options override config file
-values.
+Configuration file search order is:
+
+1. `$G15STATS_CONFIG_FILE` (if set)
+2. `~/.config/g15stats/g15stats.yaml`
+3. `/etc/g15plugins/g15stats.yaml`
+
+If both user and system config files are missing, G15Stats creates
+`~/.config/g15stats/g15stats.yaml` on first run. Command-line options override
+config file values.
 
 !!! tip
     You can combine most options, for example:

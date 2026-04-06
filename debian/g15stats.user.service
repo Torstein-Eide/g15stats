@@ -1,0 +1,13 @@
+[Unit]
+Description=G15Stats LCD monitor
+After=default.target
+
+[Service]
+Type=simple
+Environment=G15STATS_CONFIG_FILE=%h/.config/g15stats/g15stats.yaml
+ExecStart=/usr/bin/g15stats
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

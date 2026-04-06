@@ -1,0 +1,26 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: g15stats
+Upstream-Contact:
+ Torstein Eide <1884894+Torstein-Eide@users.noreply.github.com>
+Source: https://github.com/Torstein-Eide/g15stats
+
+Files: *
+Copyright:
+ 2008-2010 Mike Lampard <mlampard@users.sf.net>
+ 2008-2010 Piotr Czarnecki <czarnyckm@users.sf.net>
+ 2010 Antonio Bartolini <robynhub@gmail.com>
+ 2010 Daniel Menelkir <dmenelkir@gmail.com>
+ 2026 Torstein Eide <1884894+Torstein-Eide@users.noreply.github.com>
+License: GPL-2+
+ This program is free software; you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 2 of the License, or
+ (at your option) any later version.
+ .
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ GNU General Public License for more details.
+ .
+ On Debian systems, the full text of the GNU General Public License
+ version 2 can be found in /usr/share/common-licenses/GPL-2.

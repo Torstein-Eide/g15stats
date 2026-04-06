@@ -144,7 +144,16 @@ journalctl -u g15stats.service -b
 
 ## Config file (optional)
 
-You can define defaults in `/etc/g15plugins/g15stats.yaml`.
+Config search order is:
+
+1. `$G15STATS_CONFIG_FILE` (if set)
+2. `~/.config/g15stats/g15stats.yaml`
+3. `/etc/g15plugins/g15stats.yaml`
+
+On first run, if both user and system config files are missing, G15Stats
+creates `~/.config/g15stats/g15stats.yaml` automatically.
+
+You can define defaults in any of those config files, for example:
 
 ```yaml
 daemon: true

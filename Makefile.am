@@ -10,14 +10,14 @@ bin_PROGRAMS = g15stats
 
 # Test suite
 TESTS = tests/test_yaml_config.sh tests/test_output_file_mode.sh tests/test_config_variables.sh
-EXTRA_DIST = $(TESTS) tests/convert_g15_frames.py tests/convert_g15_frames.c tests/gen_screen_mode_dumps.sh tests/update_screens_docs.sh
+EXTRA_DIST = $(TESTS) tests/convert_g15_frames.py tests/convert_g15_frames.c tests/gen_screen_mode_dumps.sh tests/update_screens_docs.sh contrib/g15stats.yaml.example
 
 # Header file used during build, but not installed
 noinst_HEADERS = g15stats.h
 
 # Documentation installation directory and files
 docdir = @docdir@
-doc_DATA = README.md ChangeLog AUTHORS NEWS COPYING
+doc_DATA = README.md AUTHORS COPYING
 
 # Libraries to link against
 g15stats_LDADD = $(GTOP_LIBS) $(YAML_LIBS) -lg15daemon_client -lg15render -lpthread -lm -lrt

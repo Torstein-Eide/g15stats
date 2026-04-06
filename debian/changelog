@@ -1,0 +1,7 @@
+g15stats (3.0-1) unstable; urgency=medium
+
+  * Package g15stats for Debian/Ubuntu using debhelper.
+  * Add user systemd service for per-user foreground execution.
+  * Add man page and sample YAML configuration example.
+
+ -- Torstein Eide <1884894+Torstein-Eide@users.noreply.github.com>  Mon, 06 Apr 2026 12:00:00 +0000

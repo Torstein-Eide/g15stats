@@ -1,0 +1,46 @@
+g15stats for Debian
+===================
+
+This package ships a systemd user service so each user can run g15stats with
+user-level configuration.
+
+Service lifecycle
+-----------------
+
+Enable and start for the current user:
+
+  systemctl --user enable --now g15stats.service
+
+Check status:
+
+  systemctl --user status g15stats.service
+
+If you want the user service to run without an active login session, enable
+lingering for the user:
+
+  sudo loginctl enable-linger <username>
+
+Configuration
+-------------
+
+Config resolution order:
+
+1) $G15STATS_CONFIG_FILE (if set)
+2) ~/.config/g15stats/g15stats.yaml
+3) /etc/g15plugins/g15stats.yaml
+
+On first run, if no user or system config exists, g15stats creates:
+
+  ~/.config/g15stats/g15stats.yaml
+
+A sample config is shipped at:
+
+  /usr/share/doc/g15stats/examples/g15stats.yaml.example
+
+Packaging references
+--------------------
+
+- Debian Wiki HowToPackageForDebian:
+  https://wiki.debian.org/HowToPackageForDebian
+- Debian Wiki Packaging:
+  https://wiki.debian.org/Packaging
