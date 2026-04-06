@@ -156,12 +156,38 @@ static int parse_int_value(const char *value, int *parsed) {
     return 1;
 }
 
+static int get_info_pause(void) {
+    const char *env_pause = getenv("G15STATS_PAUSE");
+    int parsed_pause = 0;
+
+    if (parse_int_value(env_pause, &parsed_pause) && parsed_pause > 0) {
+        return parsed_pause;
+    }
+
+    return PAUSE;
+}
+
+static int get_forced_screen(void) {
+    const char *env_screen = getenv("G15STATS_FORCE_SCREEN");
+    int parsed_screen = -1;
+
+    if (parse_int_value(env_screen, &parsed_screen)
+            && parsed_screen >= SCREEN_SUMMARY
+            && parsed_screen <= MAX_SCREENS) {
+        return parsed_screen;
+    }
+
+    return -1;
+}
+
 static void apply_config_value(const char *key,
                                const char *value,
                                int *go_daemon,
                                int *unicore,
                                unsigned char *interface,
-                               _Bool *nic_enabled) {
+                               _Bool *nic_enabled,
+                               char *output_file_path,
+                               size_t output_file_path_len) {
     int parsed;
 
     if (strcmp(key, "daemon") == 0) {
@@ -183,6 +209,11 @@ static void apply_config_value(const char *key,
             strncpy((char *)interface, value, 127);
             interface[127] = '\0';
             *nic_enabled = 1;
+        }
+    } else if (strcmp(key, "output_file") == 0) {
+        if (value[0] != '\0' && output_file_path != NULL && output_file_path_len > 0) {
+            strncpy(output_file_path, value, output_file_path_len - 1);
+            output_file_path[output_file_path_len - 1] = '\0';
         }
     } else if (strcmp(key, "refresh") == 0) {
         if (parse_int_value(value, &parsed) && parsed >= 1 && parsed <= MAX_INTERVAL) {
@@ -206,7 +237,9 @@ static void apply_config_value(const char *key,
 static void load_config_file(int *go_daemon,
                              int *unicore,
                              unsigned char *interface,
-                             _Bool *nic_enabled) {
+                             _Bool *nic_enabled,
+                             char *output_file_path,
+                             size_t output_file_path_len) {
     yaml_parser_t parser;
     yaml_event_t event;
     FILE *fp;
@@ -295,7 +328,9 @@ static void load_config_file(int *go_daemon,
                                            go_daemon,
                                            unicore,
                                            interface,
-                                           nic_enabled);
+                                           nic_enabled,
+                                           output_file_path,
+                                           output_file_path_len);
                         expecting_key = 1;
                     }
                 }
@@ -751,21 +786,45 @@ void print_net_current_info(g15canvas *canvas, char *tmpstr) {
 }
 
 void print_freq_info(g15canvas *canvas, char *tmpstr) {
-    char proc[12];
+    char proc[24];
     int core;
-    init_cpu_count();
-    sprintf(tmpstr, "%s", "");
+    int printed = 0;
 
-    for (core = 0; (core < ncpu) && (core < 6); core++) {
-        sprintf(proc, "C%d ", core);
-        strcat(tmpstr,proc);
-        if (ncpu < 4) {
-            strcat(tmpstr, show_hertz(get_cpu_freq_cur(core)));
-        } else {
-            strcat(tmpstr, show_hertz_short(get_cpu_freq_cur(core)));
+    init_cpu_count();
+    tmpstr[0] = '\0';
+
+    if (ncpu > 6) {
+        for (core = 0; core < 3; core++) {
+            snprintf(proc, sizeof(proc), "C%d %s", core, show_hertz_short(get_cpu_freq_cur(core)));
+            if (printed > 0) {
+                strncat(tmpstr, "|", MAX_LINES - strlen(tmpstr) - 1);
+            }
+            strncat(tmpstr, proc, MAX_LINES - strlen(tmpstr) - 1);
+            printed++;
         }
-        if ((core + 1) < ncpu) {
-            strcat(tmpstr, "|");
+
+        strncat(tmpstr, "|...|", MAX_LINES - strlen(tmpstr) - 1);
+
+        for (core = ncpu - 3; core < ncpu; core++) {
+            snprintf(proc, sizeof(proc), "C%d %s", core, show_hertz_short(get_cpu_freq_cur(core)));
+            strncat(tmpstr, proc, MAX_LINES - strlen(tmpstr) - 1);
+            if ((core + 1) < ncpu) {
+                strncat(tmpstr, "|", MAX_LINES - strlen(tmpstr) - 1);
+            }
+        }
+    } else {
+        for (core = 0; core < ncpu; core++) {
+            snprintf(proc, sizeof(proc), "C%d ", core);
+            if (printed > 0) {
+                strncat(tmpstr, "|", MAX_LINES - strlen(tmpstr) - 1);
+            }
+            strncat(tmpstr, proc, MAX_LINES - strlen(tmpstr) - 1);
+            if (ncpu < 4) {
+                strncat(tmpstr, show_hertz(get_cpu_freq_cur(core)), MAX_LINES - strlen(tmpstr) - 1);
+            } else {
+                strncat(tmpstr, show_hertz_short(get_cpu_freq_cur(core)), MAX_LINES - strlen(tmpstr) - 1);
+            }
+            printed++;
         }
     }
 
@@ -1574,11 +1633,13 @@ void draw_g15_stats_info_screen(g15canvas *canvas, char *tmpstr, int all, int sc
 }
 
 void calc_info_cycle(void) {
+    int info_pause = get_info_pause();
+
     info_cycle = cycle;
     info_cycle_timer++;
 
     if (!submode) {
-        switch ((int) (info_cycle_timer / PAUSE)) {
+        switch ((int) (info_cycle_timer / info_pause)) {
             case SCREEN_SUMMARY:
                 info_cycle = SCREEN_SUMMARY;
                 break;
@@ -1590,7 +1651,7 @@ void calc_info_cycle(void) {
                     info_cycle = SCREEN_FREQ;
                     break;
                 }
-                info_cycle_timer += PAUSE;
+                info_cycle_timer += info_pause;
             case SCREEN_MEM:
                 info_cycle = SCREEN_MEM;
                 break;
@@ -1602,31 +1663,31 @@ void calc_info_cycle(void) {
                     info_cycle = SCREEN_NET;
                     break;
                 }
-                info_cycle_timer += PAUSE;
+                info_cycle_timer += info_pause;
             case SCREEN_BAT:
                 if (have_bat) {
                     info_cycle = SCREEN_BAT;
                     break;
                 }
-                info_cycle_timer += PAUSE;
+                info_cycle_timer += info_pause;
             case SCREEN_TEMP:
                 if (have_temp) {
                     info_cycle = SCREEN_TEMP;
                     break;
                 }
-                info_cycle_timer += PAUSE;
+                info_cycle_timer += info_pause;
             case SCREEN_FAN:
                 if (have_fan) {
                     info_cycle = SCREEN_FAN;
                     break;
                 }
-                info_cycle_timer += PAUSE;
+                info_cycle_timer += info_pause;
             case SCREEN_NET2:
                 if (have_nic) {
                     info_cycle = SCREEN_NET2;
                     break;
                 }
-                info_cycle_timer += PAUSE;
+                info_cycle_timer += info_pause;
             default:
                 info_cycle_timer = 0;
                 info_cycle = SCREEN_SUMMARY;
@@ -1899,10 +1960,19 @@ int main(int argc, char *argv[]){
     int i;
     int go_daemon=0;
     unsigned char interface[128] = {0};
+    char output_file_path[512] = {0};
+    FILE *output_file = NULL;
+    int use_screen_output = 1;
     static char tmpstr[MAX_LINES];
     int unicore = 0;
+    int forced_screen = -1;
     
-    load_config_file(&go_daemon, &unicore, interface, &have_nic);
+    load_config_file(&go_daemon,
+                     &unicore,
+                     interface,
+                     &have_nic,
+                     output_file_path,
+                     sizeof(output_file_path));
 
     for (i=0;i<argc;i++) {
         if(0==strncmp(argv[i],"-d",2)||0==strncmp(argv[i],"--daemon",8)) {
@@ -1948,6 +2018,7 @@ int main(int argc, char *argv[]){
             printf("--variable-cpu (-vc) the cpu cores will be calculated every time (for systems with the cpu hotplug).\n");
             printf("--refresh [seconds] (-r) set the refresh interval to [seconds] The seconds must be between 1 and 300. ie -r 15\n");
             printf("--disable-freq (-df) disable monitoring CPUs frequencies.\n\n");
+            printf("--output-file [path] (-o) write rendered LCD frames to [path] instead of sending to g15daemon\n");
             printf("Config file: %s (CLI options override file values).\n", get_config_file_path());
             return 0;
         }
@@ -1995,10 +2066,27 @@ int main(int argc, char *argv[]){
             }
           }
         }
+        if(0==strncmp(argv[i],"-o",2)||0==strncmp(argv[i],"--output-file",13)) {
+          if(argv[i+1]!=NULL) {
+            i++;
+            strncpy(output_file_path, argv[i], sizeof(output_file_path)-1);
+            output_file_path[sizeof(output_file_path)-1] = '\0';
+          }
+        }
     }        
-    if((g15screen_fd = new_g15_screen(G15_G15RBUF))<0){
-        printf("Sorry, cant connect to the G15daemon\n");
-        return -1;
+
+    if (output_file_path[0] != '\0') {
+        output_file = fopen(output_file_path, "ab");
+        if (output_file == NULL) {
+            fprintf(stderr, "Sorry, cant open output file: %s\n", output_file_path);
+            return -1;
+        }
+        use_screen_output = 0;
+    } else {
+        if((g15screen_fd = new_g15_screen(G15_G15RBUF))<0){
+            printf("Sorry, cant connect to the G15daemon\n");
+            return -1;
+        }
     }
 
     canvas = (g15canvas *) malloc (sizeof (g15canvas));
@@ -2011,10 +2099,14 @@ int main(int argc, char *argv[]){
         return -1;
 
     glibtop_init();
-    pthread_create(&keys_thread,NULL,(void*)keyboard_watch,NULL);
+    if (use_screen_output == 1) {
+        pthread_create(&keys_thread,NULL,(void*)keyboard_watch,NULL);
+    }
   
     if(have_nic==1)
       pthread_create(&net_thread,NULL,(void*)network_watch,&interface);
+
+    forced_screen = get_forced_screen();
 
     for (i=0;i<MAX_SENSOR;i++) {
         sensor_lost_fan[i] = 1;
@@ -2023,6 +2115,10 @@ int main(int argc, char *argv[]){
 
     int cycle_old   = cycle;
     while(1) {
+        if (forced_screen >= SCREEN_SUMMARY) {
+            cycle = forced_screen;
+        }
+
         calc_info_cycle();
         switch (cycle) {
             case SCREEN_SUMMARY:
@@ -2134,12 +2230,21 @@ int main(int argc, char *argv[]){
 
         canvas->mode_xor = 0;
 
-        g15_send(g15screen_fd,(char *)canvas->buffer,G15_BUFFER_LEN);
+        if (use_screen_output == 1) {
+            g15_send(g15screen_fd,(char *)canvas->buffer,G15_BUFFER_LEN);
+        } else {
+            fwrite((char *)canvas->buffer, 1, G15_BUFFER_LEN, output_file);
+            fflush(output_file);
+        }
         g15stats_wait(wait_seconds);
     }
     glibtop_close();
 
-    close(g15screen_fd);
+    if (use_screen_output == 1) {
+        close(g15screen_fd);
+    } else {
+        fclose(output_file);
+    }
     free(canvas);
     return 0;  
 }
