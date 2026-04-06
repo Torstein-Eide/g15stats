@@ -26,6 +26,7 @@ values.
 | `-ir` | Enable the bottom info bar content rotate cycle over all available sensors |
 | `-vc` | The CPU cores will be calculated every time (for systems with CPU hotplug) |
 | `-gt <id>` | Show temperature `<id>` in place of the maximal one on the summary screen. The id should point to sysfs path `/sys/class/hwmon/hwmon<id>/device/temp<id>_input` |
+| `-o <path>` | Write raw LCD frame buffers to file at `<path>` instead of sending frames to g15daemon |
 
 ## Detailed Options
 
@@ -37,6 +38,7 @@ values.
 | Network-focused monitoring | `g15stats -i eth0 -nsa` |
 | Manual sensor selection | `g15stats -t 1 -f 1 -gt 1` |
 | CPU hotplug aware | `g15stats -vc` |
+| File output mode | `g15stats -o /tmp/g15stats.frames` |
 
 ### Network Interface Selection (`-i`)
 
@@ -145,6 +147,16 @@ The ID should point to the sysfs path:
 ```
 /sys/class/hwmon/hwmon<id>/device/temp<id>_input
 ```
+
+### File Output Mode (`-o`)
+
+Write rendered LCD frame data to a file instead of sending output to g15daemon:
+
+```bash
+g15stats -o /tmp/g15stats.frames
+```
+
+This mode writes raw frame buffers (`G15_BUFFER_LEN` bytes per refresh cycle).
 
 ## Help
 

@@ -158,9 +158,13 @@ info_rotate: true
 variable_cpu: false
 disable_freq: false
 unicore: false
+output_file: ""
 ```
 
 Values passed on the command line override values from this config file.
+
+Set `output_file` to a path (or use `-o <path>`) to write raw LCD frames to a
+file instead of sending them to `g15daemon`.
 
 ## 6) Troubleshooting
 

@@ -21,8 +21,11 @@ compile_commands.json
 CTestTestfile.cmake
 _deps/
 CMakeUserPresets.json
+*.log
+*.trs
 
-# Common C build artifacts
+#
+ Common C build artifacts
 *.o       # Object files
 *.d       # Dependency files
 *.so      # Shared libraries (Linux)

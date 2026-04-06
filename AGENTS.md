@@ -20,7 +20,15 @@ make install
 ```
 
 ## Lint Commands
-This project does not have a specific linting tool configured.
+- Report-only lint targets:
+
+```bash
+make lint-cppcheck
+make lint-clang-tidy
+make lint
+```
+
+Reports are written to `.tmp/lint/`.
 
 ## Test Commands
 The project uses `make check` to run tests.

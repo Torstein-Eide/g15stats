@@ -35,3 +35,29 @@ all-local: $(top_builddir)/.tmp
 # Rule to create the temporary build directory
 $(top_builddir)/.tmp:
 	mkdir -p $(top_builddir)/.tmp
+
+# Lint reports (report-only, never fail build)
+lint: lint-cppcheck lint-clang-tidy
+
+lint-cppcheck: $(top_builddir)/.tmp
+	@mkdir -p "$(top_builddir)/.tmp/lint"
+	@printf "Running cppcheck (report-only)...\n"
+	@if command -v cppcheck >/dev/null 2>&1; then \
+		cppcheck --enable=warning,style,performance,portability --inconclusive --std=c99 --quiet \
+			-I"$(top_srcdir)" g15stats.c 2>"$(top_builddir)/.tmp/lint/cppcheck.txt" || true; \
+		printf "cppcheck report: %s\n" "$(top_builddir)/.tmp/lint/cppcheck.txt"; \
+	else \
+		printf "cppcheck not found - skipped\n" >"$(top_builddir)/.tmp/lint/cppcheck.txt"; \
+		printf "cppcheck not found, skipped\n"; \
+	fi
+
+lint-clang-tidy: $(top_builddir)/.tmp
+	@mkdir -p "$(top_builddir)/.tmp/lint"
+	@printf "Running clang-tidy (report-only)...\n"
+	@if command -v clang-tidy >/dev/null 2>&1; then \
+		clang-tidy g15stats.c -- $(AM_CPPFLAGS) $(CPPFLAGS) >"$(top_builddir)/.tmp/lint/clang-tidy.txt" 2>&1 || true; \
+		printf "clang-tidy report: %s\n" "$(top_builddir)/.tmp/lint/clang-tidy.txt"; \
+	else \
+		printf "clang-tidy not found - skipped\n" >"$(top_builddir)/.tmp/lint/clang-tidy.txt"; \
+		printf "clang-tidy not found, skipped\n"; \
+	fi
