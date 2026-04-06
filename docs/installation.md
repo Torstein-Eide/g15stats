@@ -1,5 +1,8 @@
 # Installation
 
+For a full walkthrough including sensor configuration and a systemd unit, see
+the [Installation Tutorial](installation-tutorial.md).
+
 ## Prerequisites
 
 Before building G15Stats, ensure you have the following dependencies installed:

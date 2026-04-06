@@ -30,6 +30,7 @@ theme:
 nav:
   - Home: index.md
   - Installation: installation.md
+  - Installation Tutorial: installation-tutorial.md
   - Usage: usage.md
   - Options: options.md
   - Screens: screens.md

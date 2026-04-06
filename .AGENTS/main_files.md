@@ -18,6 +18,9 @@
 ### Documentation
 - `README.rst` - Project description and usage instructions
 - `docs/` - MkDocs documentation sources
+- `.AGENTS/mkdocs_material.md` - MkDocs Material workflow notes
+- `.AGENTS/mkdocs_material_reference.md` - MkDocs Material reference cheatsheet
+- `.AGENTS/mkdocs_material_reference/` - Per-topic MkDocs Material agent notes
 - `COPYING` - License information
 
 ### Build Artifacts
