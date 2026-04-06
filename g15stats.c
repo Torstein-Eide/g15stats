@@ -82,6 +82,8 @@ _Bool have_temp = 1;
 _Bool have_fan  = 1;
 _Bool have_bat  = 1;
 _Bool have_nic  = 0;
+_Bool have_gpu  = 0;
+_Bool have_mem_pressure = 0;
 _Bool variable_cpu = 0;
 _Bool debug_enabled = 0;
 _Bool show_screen_overlay = 1;
@@ -125,6 +127,15 @@ int ncpu;
 unsigned int net_hist[MAX_NET_HIST][2];
 int net_rr_index=0;
 
+unsigned int gpu_hist[MAX_GPU_HIST];
+int gpu_rr_index = 0;
+int gpu_hist_count = 0;
+
+unsigned int mem_pressure_some_hist[MAX_GPU_HIST];
+unsigned int mem_pressure_full_hist[MAX_GPU_HIST];
+int mem_pressure_rr_index = 0;
+int mem_pressure_hist_count = 0;
+
 unsigned long net_max_in    = 100;
 unsigned long net_max_out   = 100;
 
@@ -136,6 +147,19 @@ float temp_tot_max  = 90;
 
 float fan_tot_cur   = 1;
 float fan_tot_max   = 1;
+
+int gpu_util_cur = 0;
+int gpu_mem_used = 0;
+int gpu_mem_total = 0;
+int gpu_temp_cur = 0;
+int gpu_power_cur_mw = -1;
+int gpu_power_limit_mw = -1;
+double mem_pressure_some_avg10 = 0.0;
+double mem_pressure_some_avg60 = 0.0;
+double mem_pressure_some_avg300 = 0.0;
+double mem_pressure_full_avg10 = 0.0;
+double mem_pressure_full_avg60 = 0.0;
+double mem_pressure_full_avg300 = 0.0;
 
 _Bool net_scale_absolute=0;
 
@@ -231,6 +255,8 @@ static const char *screen_name(int screen_id) {
         case SCREEN_TEMP: return "TEMPERATURE";
         case SCREEN_FAN: return "FAN";
         case SCREEN_NET2: return "NETWORK PEAK";
+        case SCREEN_GPU: return "GPU";
+        case SCREEN_MEM_PRESSURE: return "MEM PRESSURE";
         default: return "UNKNOWN";
     }
 }
@@ -246,6 +272,10 @@ static int screen_is_visible(int screen_id) {
             return have_temp;
         case SCREEN_FAN:
             return have_fan;
+        case SCREEN_GPU:
+            return have_gpu;
+        case SCREEN_MEM_PRESSURE:
+            return have_mem_pressure;
         default:
             return 1;
     }
@@ -300,6 +330,25 @@ static const char *mode_description(int screen_id, int mode_value) {
             return mode_value ? "CPU2: vertical bars" : "CPU2: horizontal bars";
         case SCREEN_CPU:
             return mode_value ? "CPU: detailed bars" : "CPU: simple bars";
+        case SCREEN_GPU:
+            if (mode_value == 0) {
+                return "GPU: bars";
+            }
+            if (mode_value == 1) {
+                return "GPU: details";
+            }
+            return "GPU: usage plot";
+        case SCREEN_MEM_PRESSURE:
+            if (mode_value == 0) {
+                return "MEM PSI: bars";
+            }
+            if (mode_value == 1) {
+                return "MEM PSI: details";
+            }
+            if (mode_value == 2) {
+                return "MEM PSI: history";
+            }
+            return "MEM PSI: details";
         default:
             return mode_value ? "Mode: 1" : "Mode: 0";
     }
@@ -827,6 +876,226 @@ int get_sysfs_text(const char *filename, char *out, size_t out_size) {
 
     out[strcspn(out, "\r\n")] = '\0';
     return 0;
+}
+
+char *trim_whitespace(char *text) {
+    char *end;
+
+    if (text == NULL) {
+        return NULL;
+    }
+
+    while (*text != '\0' && isspace((unsigned char) *text)) {
+        text++;
+    }
+
+    if (*text == '\0') {
+        return text;
+    }
+
+    end = text + strlen(text) - 1;
+    while (end > text && isspace((unsigned char) *end)) {
+        *end = '\0';
+        end--;
+    }
+
+    return text;
+}
+
+int parse_int_token(const char *token, int *value) {
+    char *end;
+    long parsed;
+
+    if (token == NULL || value == NULL) {
+        return 0;
+    }
+
+    parsed = strtol(token, &end, 10);
+    if (end == token || *end != '\0') {
+        return 0;
+    }
+
+    *value = (int) parsed;
+    return 1;
+}
+
+int parse_power_watts_to_mw(const char *token, int *value_mw) {
+    double value;
+    char *end;
+
+    if (token == NULL || value_mw == NULL) {
+        return 0;
+    }
+
+    if (strcasecmp(token, "N/A") == 0 || token[0] == '\0') {
+        return 0;
+    }
+
+    value = strtod(token, &end);
+    if (end == token || *end != '\0' || value < 0.0) {
+        return 0;
+    }
+
+    *value_mw = (int) (value * 1000.0);
+    return 1;
+}
+
+int probe_nvidia_gpu(void) {
+    FILE *fp;
+    char line[256];
+
+    fp = popen("nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null", "r");
+    if (fp == NULL) {
+        return 0;
+    }
+
+    if (fgets(line, sizeof(line), fp) == NULL) {
+        pclose(fp);
+        return 0;
+    }
+
+    pclose(fp);
+    return trim_whitespace(line)[0] != '\0';
+}
+
+int update_nvidia_gpu_stats(void) {
+    FILE *fp;
+    char line[256];
+    char *field;
+    int field_index = 0;
+    int util = 0;
+    int mem_used = 0;
+    int mem_total = 0;
+    int temp = 0;
+    int power_cur_mw = -1;
+    int power_limit_mw = -1;
+    int ok = 1;
+
+    fp = popen("nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,power.limit --format=csv,noheader,nounits 2>/dev/null", "r");
+    if (fp == NULL) {
+        return 0;
+    }
+
+    if (fgets(line, sizeof(line), fp) == NULL) {
+        pclose(fp);
+        return 0;
+    }
+    pclose(fp);
+
+    field = strtok(line, ",");
+    while (field != NULL) {
+        char *value = trim_whitespace(field);
+
+        switch (field_index) {
+            case 0:
+                ok &= parse_int_token(value, &util);
+                break;
+            case 1:
+                ok &= parse_int_token(value, &mem_used);
+                break;
+            case 2:
+                ok &= parse_int_token(value, &mem_total);
+                break;
+            case 3:
+                ok &= parse_int_token(value, &temp);
+                break;
+            case 4:
+                parse_power_watts_to_mw(value, &power_cur_mw);
+                break;
+            case 5:
+                parse_power_watts_to_mw(value, &power_limit_mw);
+                break;
+            default:
+                break;
+        }
+
+        field_index++;
+        field = strtok(NULL, ",");
+    }
+
+    if (!ok || field_index < 4) {
+        return 0;
+    }
+
+    gpu_util_cur = util;
+    gpu_mem_used = mem_used;
+    gpu_mem_total = mem_total;
+    gpu_temp_cur = temp;
+    gpu_power_cur_mw = power_cur_mw;
+    gpu_power_limit_mw = power_limit_mw;
+
+    return 1;
+}
+
+int parse_psi_line(const char *line,
+                   const char *label,
+                   double *avg10,
+                   double *avg60,
+                   double *avg300) {
+    const char *cursor;
+
+    if (line == NULL || label == NULL || avg10 == NULL || avg60 == NULL || avg300 == NULL) {
+        return 0;
+    }
+
+    cursor = trim_whitespace((char *) line);
+    if (strncmp(cursor, label, strlen(label)) != 0) {
+        return 0;
+    }
+
+    cursor += strlen(label);
+    while (*cursor != '\0' && isspace((unsigned char) *cursor)) {
+        cursor++;
+    }
+
+    if (sscanf(cursor, "avg10=%lf avg60=%lf avg300=%lf", avg10, avg60, avg300) != 3) {
+        return 0;
+    }
+
+    return 1;
+}
+
+int update_memory_pressure_stats(void) {
+    FILE *fp;
+    char line[256];
+    int found_some = 0;
+    int found_full = 0;
+    double some10 = 0.0;
+    double some60 = 0.0;
+    double some300 = 0.0;
+    double full10 = 0.0;
+    double full60 = 0.0;
+    double full300 = 0.0;
+
+    fp = fopen("/proc/pressure/memory", "r");
+    if (fp == NULL) {
+        return 0;
+    }
+
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        if (!found_some && parse_psi_line(line, "some", &some10, &some60, &some300)) {
+            found_some = 1;
+            continue;
+        }
+        if (!found_full && parse_psi_line(line, "full", &full10, &full60, &full300)) {
+            found_full = 1;
+            continue;
+        }
+    }
+    fclose(fp);
+
+    if (!found_some && !found_full) {
+        return 0;
+    }
+
+    mem_pressure_some_avg10 = some10;
+    mem_pressure_some_avg60 = some60;
+    mem_pressure_some_avg300 = some300;
+    mem_pressure_full_avg10 = full10;
+    mem_pressure_full_avg60 = full60;
+    mem_pressure_full_avg300 = full300;
+
+    return 1;
 }
 
 int get_processor_freq(const char *which, int core) {
@@ -1447,6 +1716,359 @@ void print_freq_info(g15canvas *canvas, char *tmpstr) {
     }
 
     g15r_renderString(canvas, (unsigned char*) tmpstr, 0, G15_TEXT_SMALL, 80 - (strlen(tmpstr)*4) / 2, INFO_ROW);
+}
+
+void draw_gpu_screen(g15canvas *canvas, char *tmpstr) {
+    int plot_mode = 0;
+    int mem_pct = 0;
+    int gpu_bar_end = BAR_START;
+    int mem_bar_end = BAR_START;
+
+    g15r_clearScreen(canvas, G15_COLOR_WHITE);
+
+    if (!update_nvidia_gpu_stats()) {
+        g15r_renderString(canvas, (unsigned char*)"GPU unavailable", 0, G15_TEXT_LARGE, 80 - (13 * 9) / 2, 8);
+        g15r_renderString(canvas, (unsigned char*)"nvidia-smi failed", 0, G15_TEXT_MED, 80 - (16 * 6) / 2, 24);
+        return;
+    }
+
+    if (gpu_mem_total > 0) {
+        mem_pct = (gpu_mem_used * 100) / gpu_mem_total;
+    }
+    if (mem_pct < 0) {
+        mem_pct = 0;
+    }
+    if (mem_pct > 100) {
+        mem_pct = 100;
+    }
+
+    if (gpu_util_cur < 0) {
+        gpu_util_cur = 0;
+    }
+    if (gpu_util_cur > 100) {
+        gpu_util_cur = 100;
+    }
+
+    gpu_hist[gpu_rr_index] = (unsigned int) gpu_util_cur;
+    gpu_rr_index++;
+    if (gpu_rr_index >= MAX_GPU_HIST) {
+        gpu_rr_index = 0;
+    }
+    if (gpu_hist_count < MAX_GPU_HIST) {
+        gpu_hist_count++;
+    }
+
+    plot_mode = (mode[SCREEN_GPU] >= 2);
+
+    if (plot_mode) {
+        int i;
+        int prev_x = 0;
+        int prev_y = 0;
+        int avg = 0;
+        int start_x;
+
+        if (gpu_hist_count > 0) {
+            int start_idx = gpu_rr_index - gpu_hist_count;
+            if (start_idx < 0) {
+                start_idx += MAX_GPU_HIST;
+            }
+            start_x = BAR_END - gpu_hist_count + 1;
+
+            g15r_drawLine(canvas, BAR_START, 31, BAR_END, 31, G15_COLOR_BLACK);
+            g15r_drawLine(canvas, BAR_START, 3, BAR_START, 31, G15_COLOR_BLACK);
+
+            for (i = 0; i < gpu_hist_count; i++) {
+                int idx = (start_idx + i) % MAX_GPU_HIST;
+                int value = (int) gpu_hist[idx];
+                int x = start_x + i;
+                int y;
+
+                if (value < 0) {
+                    value = 0;
+                }
+                if (value > 100) {
+                    value = 100;
+                }
+
+                avg += value;
+                y = 31 - ((value * 28) / 100);
+                if (y < 3) {
+                    y = 3;
+                }
+
+                g15r_setPixel(canvas, x, y, G15_COLOR_BLACK);
+                if (i > 0) {
+                    g15r_drawLine(canvas, prev_x, prev_y, x, y, G15_COLOR_BLACK);
+                }
+                prev_x = x;
+                prev_y = y;
+            }
+
+            avg /= gpu_hist_count;
+            snprintf(tmpstr, MAX_LINES, "Now %d%% | Avg %d%%", gpu_util_cur, avg);
+            g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80 - (strlen(tmpstr) * 4) / 2, INFO_ROW);
+        }
+        return;
+    }
+
+    if (!mode[SCREEN_GPU]) {
+        snprintf(tmpstr, MAX_LINES, "GPU %3d%%", gpu_util_cur);
+        g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, TEXT_LEFT, 4);
+        g15r_drawBar(canvas, BAR_START, 3, BAR_END, 12, G15_COLOR_BLACK, gpu_util_cur + 1, 100, 4);
+
+        if (gpu_util_cur > 0) {
+            gpu_bar_end = BAR_START + (((BAR_END - BAR_START + 1) * gpu_util_cur) / 100);
+        }
+
+        if (gpu_power_cur_mw >= 0) {
+            int power_text_x;
+            int overlap = 0;
+
+            if (gpu_power_limit_mw > 0) {
+                snprintf(tmpstr,
+                         MAX_LINES,
+                         "%.1f/%.1fW",
+                         ((float) gpu_power_cur_mw) / 1000.0f,
+                         ((float) gpu_power_limit_mw) / 1000.0f);
+            } else {
+                snprintf(tmpstr, MAX_LINES, "%.1fW", ((float) gpu_power_cur_mw) / 1000.0f);
+            }
+
+            power_text_x = G15_LCD_WIDTH - ((int) strlen(tmpstr) * 6) - 1;
+            if (power_text_x < BAR_START) {
+                power_text_x = BAR_START;
+            }
+
+            if (gpu_bar_end >= power_text_x) {
+                overlap = 1;
+            }
+
+            if (overlap) {
+                canvas->mode_xor = 1;
+            }
+            g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, power_text_x, 4);
+            if (overlap) {
+                canvas->mode_xor = 0;
+            }
+        }
+
+        snprintf(tmpstr, MAX_LINES, "VRAM%3d%%", mem_pct);
+        g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, TEXT_LEFT, 18);
+        g15r_drawBar(canvas, BAR_START, 17, BAR_END, 26, G15_COLOR_BLACK, mem_pct + 1, 100, 4);
+
+        if (mem_pct > 0) {
+            mem_bar_end = BAR_START + (((BAR_END - BAR_START + 1) * mem_pct) / 100);
+        }
+
+        drawLine_both(canvas, 3, 26);
+
+        snprintf(tmpstr, MAX_LINES, "%d/%d MB", gpu_mem_used, gpu_mem_total);
+        {
+            int mem_text_x = G15_LCD_WIDTH - ((int) strlen(tmpstr) * 6) - 1;
+            int overlap = 0;
+
+            if (mem_text_x < BAR_START) {
+                mem_text_x = BAR_START;
+            }
+
+            if (mem_bar_end >= mem_text_x) {
+                overlap = 1;
+            }
+
+            if (overlap) {
+                canvas->mode_xor = 1;
+            }
+            g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, mem_text_x, 18);
+            if (overlap) {
+                canvas->mode_xor = 0;
+            }
+        }
+    } else {
+        snprintf(tmpstr, MAX_LINES, "GPU  %d%%", gpu_util_cur);
+        g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_LARGE, 4, 2);
+
+        snprintf(tmpstr, MAX_LINES, "TEMP %dC", gpu_temp_cur);
+        g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 4, 15);
+
+        snprintf(tmpstr, MAX_LINES, "VRAM %d/%dMB", gpu_mem_used, gpu_mem_total);
+        g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 4, 24);
+
+        if (gpu_power_cur_mw >= 0 && gpu_power_limit_mw > 0) {
+            snprintf(tmpstr,
+                     MAX_LINES,
+                     "PWR %.1f/%.1fW",
+                     ((float) gpu_power_cur_mw) / 1000.0f,
+                     ((float) gpu_power_limit_mw) / 1000.0f);
+            g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 84, 15);
+        }
+    }
+}
+
+void draw_mem_pressure_screen(g15canvas *canvas, char *tmpstr) {
+    int history_mode = 0;
+    int some10_permille;
+    int full10_permille;
+
+    g15r_clearScreen(canvas, G15_COLOR_WHITE);
+
+    if (!update_memory_pressure_stats()) {
+        g15r_renderString(canvas, (unsigned char*)"Memory PSI unavailable", 0, G15_TEXT_MED, 80 - (20 * 6) / 2, 8);
+        g15r_renderString(canvas, (unsigned char*)"/proc/pressure/memory", 0, G15_TEXT_MED, 80 - (21 * 6) / 2, 22);
+        return;
+    }
+
+    some10_permille = (int) (mem_pressure_some_avg10 * 10.0 + 0.5);
+    full10_permille = (int) (mem_pressure_full_avg10 * 10.0 + 0.5);
+
+    if (some10_permille < 0) {
+        some10_permille = 0;
+    }
+    if (some10_permille > 1000) {
+        some10_permille = 1000;
+    }
+    if (full10_permille < 0) {
+        full10_permille = 0;
+    }
+    if (full10_permille > 1000) {
+        full10_permille = 1000;
+    }
+
+    mem_pressure_some_hist[mem_pressure_rr_index] = (unsigned int) some10_permille;
+    mem_pressure_full_hist[mem_pressure_rr_index] = (unsigned int) full10_permille;
+    mem_pressure_rr_index++;
+    if (mem_pressure_rr_index >= MAX_GPU_HIST) {
+        mem_pressure_rr_index = 0;
+    }
+    if (mem_pressure_hist_count < MAX_GPU_HIST) {
+        mem_pressure_hist_count++;
+    }
+
+    history_mode = (mode[SCREEN_MEM_PRESSURE] >= 2);
+
+    if (history_mode) {
+        int i;
+        int start_x;
+        int prev_some_x = 0;
+        int prev_some_y = 0;
+        int prev_full_x = 0;
+        int prev_full_y = 0;
+        int some_avg_permille = 0;
+        int full_avg_permille = 0;
+
+        g15r_drawLine(canvas, BAR_START, 31, BAR_END, 31, G15_COLOR_BLACK);
+        g15r_drawLine(canvas, BAR_START, 3, BAR_START, 31, G15_COLOR_BLACK);
+
+        g15r_renderString(canvas, (unsigned char*)"S", 0, G15_TEXT_SMALL, 145, 1);
+        canvas->mode_xor = 1;
+        g15r_renderString(canvas, (unsigned char*)"F", 0, G15_TEXT_SMALL, 152, 1);
+        canvas->mode_xor = 0;
+
+        if (mem_pressure_hist_count > 0) {
+            int start_idx = mem_pressure_rr_index - mem_pressure_hist_count;
+            if (start_idx < 0) {
+                start_idx += MAX_GPU_HIST;
+            }
+            start_x = BAR_END - mem_pressure_hist_count + 1;
+
+            for (i = 0; i < mem_pressure_hist_count; i++) {
+                int idx = (start_idx + i) % MAX_GPU_HIST;
+                int some_value = (int) mem_pressure_some_hist[idx];
+                int full_value = (int) mem_pressure_full_hist[idx];
+                int x = start_x + i;
+                int some_y;
+                int full_y;
+
+                if (some_value < 0) {
+                    some_value = 0;
+                }
+                if (some_value > 1000) {
+                    some_value = 1000;
+                }
+                if (full_value < 0) {
+                    full_value = 0;
+                }
+                if (full_value > 1000) {
+                    full_value = 1000;
+                }
+
+                some_avg_permille += some_value;
+                full_avg_permille += full_value;
+
+                some_y = 31 - ((some_value * 28) / 1000);
+                full_y = 31 - ((full_value * 28) / 1000);
+                if (some_y < 3) {
+                    some_y = 3;
+                }
+                if (full_y < 3) {
+                    full_y = 3;
+                }
+
+                g15r_setPixel(canvas, x, some_y, G15_COLOR_BLACK);
+                if (i > 0) {
+                    g15r_drawLine(canvas, prev_some_x, prev_some_y, x, some_y, G15_COLOR_BLACK);
+                }
+                prev_some_x = x;
+                prev_some_y = some_y;
+
+                g15r_setPixel(canvas, x, full_y, G15_COLOR_WHITE);
+                if (i > 0) {
+                    g15r_drawLine(canvas, prev_full_x, prev_full_y, x, full_y, G15_COLOR_WHITE);
+                }
+                prev_full_x = x;
+                prev_full_y = full_y;
+            }
+
+            some_avg_permille /= mem_pressure_hist_count;
+            full_avg_permille /= mem_pressure_hist_count;
+
+            snprintf(tmpstr,
+                     MAX_LINES,
+                     "S %.1f%%(%.1f) | F %.1f%%(%.1f)",
+                     ((float) some10_permille) / 10.0f,
+                     ((float) some_avg_permille) / 10.0f,
+                     ((float) full10_permille) / 10.0f,
+                     ((float) full_avg_permille) / 10.0f);
+            g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80 - (strlen(tmpstr) * 4) / 2, INFO_ROW);
+        }
+
+        return;
+    }
+
+    if (!mode[SCREEN_MEM_PRESSURE]) {
+        snprintf(tmpstr, MAX_LINES, "SOME %4.1f%%", mem_pressure_some_avg10);
+        g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, TEXT_LEFT, 4);
+        g15r_drawBar(canvas, BAR_START, 3, BAR_END, 12, G15_COLOR_BLACK, some10_permille + 1, 1000, 4);
+
+        snprintf(tmpstr, MAX_LINES, "FULL %4.1f%%", mem_pressure_full_avg10);
+        g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, TEXT_LEFT, 18);
+        g15r_drawBar(canvas, BAR_START, 17, BAR_END, 26, G15_COLOR_BLACK, full10_permille + 1, 1000, 4);
+
+        drawLine_both(canvas, 3, 26);
+
+        snprintf(tmpstr,
+                 MAX_LINES,
+                 "S60 %.1f S300 %.1f | F60 %.1f F300 %.1f",
+                 mem_pressure_some_avg60,
+                 mem_pressure_some_avg300,
+                 mem_pressure_full_avg60,
+                 mem_pressure_full_avg300);
+        g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80 - (strlen(tmpstr) * 4) / 2, INFO_ROW);
+    } else {
+        snprintf(tmpstr, MAX_LINES, "SOME avg10  %4.1f%%", mem_pressure_some_avg10);
+        g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 2, 3);
+        snprintf(tmpstr, MAX_LINES, "SOME avg60  %4.1f%%", mem_pressure_some_avg60);
+        g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 2, 12);
+        snprintf(tmpstr, MAX_LINES, "SOME avg300 %4.1f%%", mem_pressure_some_avg300);
+        g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 2, 21);
+
+        if (mode[SCREEN_MEM_PRESSURE] >= 2) {
+            snprintf(tmpstr, MAX_LINES, "FULL10 %.1f|60 %.1f|300 %.1f", mem_pressure_full_avg10, mem_pressure_full_avg60, mem_pressure_full_avg300);
+            g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80 - (strlen(tmpstr) * 4) / 2, INFO_ROW);
+        } else {
+            snprintf(tmpstr, MAX_LINES, "FULL avg10 %.1f%%", mem_pressure_full_avg10);
+            g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 2, 30);
+        }
+    }
 }
 
 void print_time_info(g15canvas *canvas, char *tmpstr){
@@ -2984,11 +3606,33 @@ void calc_info_cycle(void) {
                     break;
                 }
                 info_cycle_timer += info_pause;
+            case SCREEN_GPU:
+                if (have_gpu) {
+                    info_cycle = SCREEN_GPU;
+                    break;
+                }
+                info_cycle_timer += info_pause;
+            case SCREEN_MEM_PRESSURE:
+                if (have_mem_pressure) {
+                    info_cycle = SCREEN_MEM_PRESSURE;
+                    break;
+                }
+                info_cycle_timer += info_pause;
                 break;
             default:
                 info_cycle_timer = 0;
                 info_cycle = SCREEN_SUMMARY;
                 break;
+        }
+
+        if (target_screen >= SCREEN_GPU && info_cycle == SCREEN_GPU && !have_gpu) {
+            info_cycle_timer = 0;
+            info_cycle = SCREEN_SUMMARY;
+        }
+
+        if (target_screen >= SCREEN_MEM_PRESSURE && info_cycle == SCREEN_MEM_PRESSURE && !have_mem_pressure) {
+            info_cycle_timer = 0;
+            info_cycle = SCREEN_SUMMARY;
         }
 
         if (target_screen >= SCREEN_NET2 && info_cycle == SCREEN_NET2 && !have_nic) {
@@ -3035,6 +3679,34 @@ void print_info_label(g15canvas *canvas, char *tmpstr) {
             break;
         case SCREEN_NET2    :
             print_net_current_info(canvas, tmpstr);
+            break;
+        case SCREEN_GPU:
+            if (!update_nvidia_gpu_stats()) {
+                snprintf(tmpstr, MAX_LINES, "GPU data unavailable");
+            } else {
+                int mem_pct = 0;
+                if (gpu_mem_total > 0) {
+                    mem_pct = (gpu_mem_used * 100) / gpu_mem_total;
+                }
+                snprintf(tmpstr, MAX_LINES, "GPU %d%%|VRAM %d%%|TEMP %dC", gpu_util_cur, mem_pct, gpu_temp_cur);
+            }
+            g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80 - (strlen(tmpstr) * 4) / 2, INFO_ROW);
+            break;
+        case SCREEN_MEM_PRESSURE:
+            if (!update_memory_pressure_stats()) {
+                snprintf(tmpstr, MAX_LINES, "Memory PSI unavailable");
+            } else {
+                snprintf(tmpstr,
+                         MAX_LINES,
+                         "SOME %.1f/%.1f/%.1f | FULL %.1f/%.1f/%.1f",
+                         mem_pressure_some_avg10,
+                         mem_pressure_some_avg60,
+                         mem_pressure_some_avg300,
+                         mem_pressure_full_avg10,
+                         mem_pressure_full_avg60,
+                         mem_pressure_full_avg300);
+            }
+            g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80 - (strlen(tmpstr) * 4) / 2, INFO_ROW);
             break;
     }
 }
@@ -3550,6 +4222,16 @@ int main(int argc, const char *argv[]){
         }
     }
 
+    have_gpu = probe_nvidia_gpu();
+    if (!have_gpu && debug_enabled) {
+        fprintf(stderr, "[g15stats] nvidia-smi unavailable or no NVIDIA GPU detected; GPU screen disabled\n");
+    }
+
+    have_mem_pressure = update_memory_pressure_stats();
+    if (!have_mem_pressure && debug_enabled) {
+        fprintf(stderr, "[g15stats] memory pressure metrics unavailable; MEM PRESSURE screen disabled\n");
+    }
+
     if (use_screen_output == 1) {
         pthread_create(&keys_thread,NULL,(void*)keyboard_watch,NULL);
     }
@@ -3608,8 +4290,28 @@ int main(int argc, const char *argv[]){
             case SCREEN_BAT:
             case SCREEN_TEMP:
             case SCREEN_FAN:
+            case SCREEN_GPU:
+            case SCREEN_MEM_PRESSURE:
                 if ((cycle_old != cycle) && ((!cycle_old) ^ (cycle_old < cycle))) {
                     switch (cycle) {
+                        case SCREEN_MEM_PRESSURE:
+                            if (have_mem_pressure) {
+                                draw_mem_pressure_screen(canvas, tmpstr);
+                                if (have_mem_pressure) {
+                                    break;
+                                }
+                            }
+                            cycle--;
+                            info_cycle = cycle;
+                        case SCREEN_GPU:
+                            if (have_gpu) {
+                                draw_gpu_screen(canvas, tmpstr);
+                                if (have_gpu) {
+                                    break;
+                                }
+                            }
+                            cycle--;
+                            info_cycle = cycle;
                         case SCREEN_FAN:
                             if (have_fan) {
                                 draw_g15_stats_info_screen(canvas, tmpstr, 1, SCREEN_FAN);
@@ -3688,6 +4390,24 @@ int main(int argc, const char *argv[]){
                             }
                             cycle++;
                             info_cycle  = cycle;
+                        case SCREEN_GPU:
+                            if (have_gpu) {
+                                draw_gpu_screen(canvas, tmpstr);
+                                if (have_gpu) {
+                                    break;
+                                }
+                            }
+                            cycle++;
+                            info_cycle = cycle;
+                        case SCREEN_MEM_PRESSURE:
+                            if (have_mem_pressure) {
+                                draw_mem_pressure_screen(canvas, tmpstr);
+                                if (have_mem_pressure) {
+                                    break;
+                                }
+                            }
+                            cycle++;
+                            info_cycle = cycle;
                     }
                 }
                 if (cycle <= MAX_SCREENS) {

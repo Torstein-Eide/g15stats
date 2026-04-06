@@ -6,7 +6,7 @@
 
 #define MAX_SENSOR      4
 
-#define MAX_MODE        1
+#define MAX_MODE        2
 #define MAX_SUB_MODE    1
 
 #define MAX_INTERVAL    300
@@ -17,6 +17,7 @@
 #define	VL_LEFT		42
 #define	BAR_START	45
 #define	BAR_END		153
+#define MAX_GPU_HIST    (BAR_END - BAR_START + 1)
 #define BAR_BOTTOM      32
 #define	TEXT_RIGHT      155
 #define	MAX_LINES	128
@@ -40,8 +41,10 @@
 #define SCREEN_TEMP     8
 #define SCREEN_FAN      9
 #define SCREEN_NET2     10
+#define SCREEN_GPU      11
+#define SCREEN_MEM_PRESSURE 12
 
-#define	MAX_SCREENS	10
+#define	MAX_SCREENS	12
 
 typedef struct g15_stats_bat_info
 {	

@@ -41,9 +41,11 @@ G15Stats provides multiple screens for monitoring different system metrics:
 4. **Memory Screen** - Memory usage visualization
 5. **Swap Screen** - Swap space monitoring
 6. **Network Screen** - Network traffic statistics
-7. **Battery Screen** - Battery charge status
-8. **Temperature Screen** - System temperature sensors
-9. **Fan Speed Screen** - Fan speed monitoring
+7. **GPU Screen** - NVIDIA GPU load and memory telemetry (when available)
+8. **Memory Pressure Screen** - Linux PSI memory pressure stats (when available)
+9. **Battery Screen** - Battery charge status
+10. **Temperature Screen** - System temperature sensors
+11. **Fan Speed Screen** - Fan speed monitoring
 
 ## Examples
 

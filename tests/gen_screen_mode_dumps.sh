@@ -10,7 +10,7 @@ png_dir="${workdir}/png"
 converter_src="${top_builddir}/tests/convert_g15_frames.c"
 converter_bin="${workdir}/convert_g15_frames"
 
-screens="${SCREENS:-0 1 2 3 4 5 6 7 8 9 10}"
+screens="${SCREENS:-0 1 2 3 4 5 6 7 8 9 10 11 12}"
 modes="${MODES:-0 1}"
 timeout_s="${TIMEOUT_SECONDS:-6}"
 

@@ -43,6 +43,8 @@ G15Stats includes these primary screens:
 - `MEMORY`: Memory usage and composition
 - `SWAP`: Swap usage and paging activity
 - `NETWORK` and `NETWORK PEAK`: Throughput history, current and peak rates
+- `GPU`: NVIDIA GPU utilization, memory usage, temperature, and power (when available)
+- `MEM PRESSURE`: Linux PSI memory pressure (`/proc/pressure/memory`) when available
 - `BATTERY`: Battery charge/state (when available)
 - `TEMPERATURE`: Temperature sensors (when available)
 - `FAN`: Fan speed sensors (when available)
