@@ -108,7 +108,7 @@ For questions or issues, you can reach out via email (see AUTHORS file for conta
 
 ## License
 
-See the [COPYING](../COPYING) file for license information.
+See the [COPYING](COPYING) file for license information.
 
 ## Acknowledgments
 
