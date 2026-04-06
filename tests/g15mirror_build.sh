@@ -1,0 +1,1 @@
+gcc -shared -fPIC -O2 -Wall -Wextra -ldl -pthread -o libg15mirror.so g15mirror.c
