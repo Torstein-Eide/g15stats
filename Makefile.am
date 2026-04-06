@@ -9,7 +9,7 @@ METASOURCES = AUTO
 bin_PROGRAMS = g15stats
 
 # Test suite
-TESTS = tests/test_yaml_config.sh tests/test_output_file_mode.sh
+TESTS = tests/test_yaml_config.sh tests/test_output_file_mode.sh tests/test_config_variables.sh
 EXTRA_DIST = $(TESTS) tests/convert_g15_frames.py tests/convert_g15_frames.c
 
 # Header file used during build, but not installed
