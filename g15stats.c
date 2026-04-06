@@ -84,6 +84,7 @@ _Bool have_nic  = 0;
 _Bool variable_cpu = 0;
 _Bool debug_enabled = 0;
 _Bool show_screen_overlay = 1;
+_Bool bar_chart_background = 0;
 
 int overlay_screen = -1;
 int overlay_ticks = 0;
@@ -104,6 +105,12 @@ int sensor_temp_id      = 0;
 int sensor_temp_main    = 0;
 
 int sensor_fan_id       = 0;
+
+_Bool sensor_temp_forced = 0;
+_Bool sensor_fan_forced = 0;
+_Bool cpu_vendor_amd = 0;
+_Bool cpu_vendor_intel = 0;
+_Bool debug_cpu_temp_logged = 0;
 
 /** Holds the number of the cpus */
 int ncpu;
@@ -307,6 +314,8 @@ static void apply_config_value(const char *key,
         debug_enabled = parse_bool_value(value);
     } else if (strcmp(key, "screen_overlay") == 0) {
         show_screen_overlay = parse_bool_value(value);
+    } else if (strcmp(key, "bar_background") == 0) {
+        bar_chart_background = parse_bool_value(value);
     } else if (strcmp(key, "cpu2_min_bar_width") == 0) {
         if (parse_int_value(value, &parsed)
                 && parsed >= 1
@@ -341,6 +350,7 @@ static void apply_config_value(const char *key,
     } else if (strcmp(key, "temperature") == 0) {
         if (parse_int_value(value, &parsed) && parsed >= 0 && parsed < MAX_SENSOR) {
             sensor_temp_id = parsed;
+            sensor_temp_forced = 1;
         }
     } else if (strcmp(key, "global_temp") == 0) {
         if (parse_int_value(value, &parsed) && parsed >= 0 && parsed < MAX_SENSOR) {
@@ -349,6 +359,7 @@ static void apply_config_value(const char *key,
     } else if (strcmp(key, "fan") == 0) {
         if (parse_int_value(value, &parsed) && parsed >= 0 && parsed < MAX_SENSOR) {
             sensor_fan_id = parsed;
+            sensor_fan_forced = 1;
         }
     }
 }
@@ -634,6 +645,11 @@ void drawBar_reversed (g15canvas * canvas, int x1, int y1, int x2, int y2, int c
                        int num, int max, int type)
 {
     float len, length;
+
+    if (!bar_chart_background && type == 5) {
+        return;
+    }
+
     if (max <= 0 || num <= 0)
         return;
     if (num > max)
@@ -756,6 +772,29 @@ int get_sysfs_value(const char *filename) {
     return ret_val;
 }
 
+int get_sysfs_text(const char *filename, char *out, size_t out_size) {
+    FILE *fd_main;
+
+    if (out == NULL || out_size == 0) {
+        return SENSOR_ERROR;
+    }
+    out[0] = '\0';
+
+    fd_main = fopen(filename, "r");
+    if (fd_main == NULL) {
+        return SENSOR_ERROR;
+    }
+
+    if (fgets(out, (int) out_size, fd_main) == NULL) {
+        fclose(fd_main);
+        return SENSOR_ERROR;
+    }
+    fclose(fd_main);
+
+    out[strcspn(out, "\r\n")] = '\0';
+    return 0;
+}
+
 int get_processor_freq(const char *which, int core) {
     static char tmpstr [MAX_LINES];
     sprintf(tmpstr, "/sys/devices/system/cpu/cpu%d/cpufreq/%s", core, which);
@@ -807,6 +846,124 @@ int get_hwmon(int sensor_id, const char *sensor, const char *which, int id, _Boo
     return get_sysfs_value(tmpstr);
 }
 
+int get_hwmon_text(int sensor_id, const char *sensor, const char *which, int id, _Bool sensor_type, char *out, size_t out_size) {
+    char tmpstr[MAX_LINES];
+
+    if ((sensor == NULL || sensor[0] == '\0') && (id <= 0)) {
+        if (sensor_type) {
+            snprintf(tmpstr, sizeof(tmpstr), "/sys/class/hwmon/hwmon%d/device/%s", sensor_id, which);
+        } else {
+            snprintf(tmpstr, sizeof(tmpstr), "/sys/class/hwmon/hwmon%d/%s", sensor_id, which);
+        }
+    } else {
+        if (sensor_type) {
+            snprintf(tmpstr, sizeof(tmpstr), "/sys/class/hwmon/hwmon%d/device/%s%d_%s", sensor_id, sensor, id, which);
+        } else {
+            snprintf(tmpstr, sizeof(tmpstr), "/sys/class/hwmon/hwmon%d/%s%d_%s", sensor_id, sensor, id, which);
+        }
+    }
+
+    return get_sysfs_text(tmpstr, out, out_size);
+}
+
+int is_amd_preferred_temp_label(const char *label) {
+    if (label == NULL) {
+        return 0;
+    }
+
+    return (strncasecmp(label, "tctl", 4) == 0 || strncasecmp(label, "tccd", 4) == 0);
+}
+
+void init_cpu_vendor_flags(void) {
+    FILE *fd;
+    char line[256];
+
+    cpu_vendor_amd = 0;
+    cpu_vendor_intel = 0;
+    fd = fopen("/proc/cpuinfo", "r");
+    if (fd == NULL) {
+        return;
+    }
+
+    while (fgets(line, sizeof(line), fd) != NULL) {
+        if (strstr(line, "AuthenticAMD") != NULL) {
+            cpu_vendor_amd = 1;
+        }
+        if (strstr(line, "GenuineIntel") != NULL) {
+            cpu_vendor_intel = 1;
+        }
+        if (cpu_vendor_amd || cpu_vendor_intel) {
+            break;
+        }
+    }
+
+    fclose(fd);
+
+    if (debug_enabled) {
+        if (cpu_vendor_amd) {
+            fprintf(stderr,
+                    "[g15stats] cpu vendor detected: AMD (temp auto prefers hwmon name 'k10temp'; summary auto prefers max(Tctl,Tccd*))\n");
+        } else if (cpu_vendor_intel) {
+            fprintf(stderr,
+                    "[g15stats] cpu vendor detected: Intel (temp auto prefers hwmon name 'coretemp')\n");
+        } else {
+            fprintf(stderr,
+                    "[g15stats] cpu vendor detected: unknown (temp auto uses generic best-probe selection)\n");
+        }
+    }
+}
+
+int hwmon_name_matches(int sensor_id, _Bool sensor_type, const char *needle) {
+    char name[64];
+
+    if (needle == NULL || needle[0] == '\0') {
+        return 0;
+    }
+
+    if (get_hwmon_text(sensor_id, "", "name", 0, sensor_type, name, sizeof(name)) == 0) {
+        if (strstr(name, needle) != NULL) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+int fan_label_is_preferred(const char *label) {
+    if (label == NULL) {
+        return 0;
+    }
+
+    return (strcasestr(label, "cpu") != NULL
+            || strcasestr(label, "processor") != NULL
+            || strcasestr(label, "soc") != NULL);
+}
+
+int count_preferred_fan_labels(int sensor_id, _Bool sensor_type) {
+    int id;
+    int score = 0;
+
+    for (id = 1; id <= NUM_PROBES; id++) {
+        char fan_label[64];
+
+        if (get_hwmon_text(sensor_id,
+                           "fan",
+                           "label",
+                           id,
+                           sensor_type,
+                           fan_label,
+                           sizeof(fan_label)) != 0) {
+            continue;
+        }
+
+        if (fan_label_is_preferred(fan_label)) {
+            score++;
+        }
+    }
+
+    return score;
+}
+
 int get_sensor_cur(int id, int screen_id) {
     if (screen_id == SCREEN_TEMP) {
         return get_hwmon(sensor_temp_id, "temp", "input", id, sensor_type_temp[sensor_temp_id]);
@@ -838,9 +995,191 @@ int get_next(int sensor_id, const int *sensor_lost){
     return SENSOR_ERROR;
 }
 
+int count_sensor_probes(int sensor_id, int screen_id, _Bool sensor_type) {
+    int id;
+    int count = 0;
+
+    for (id = 1; id <= NUM_PROBES; id++) {
+        int val;
+
+        if (screen_id == SCREEN_TEMP) {
+            val = get_hwmon(sensor_id, "temp", "input", id, sensor_type);
+        } else {
+            val = get_hwmon(sensor_id, "fan", "input", id, sensor_type);
+        }
+
+        if (val == SENSOR_ERROR) {
+            break;
+        }
+        count++;
+    }
+
+    return count;
+}
+
+int count_nonzero_fan_probes(int sensor_id, _Bool sensor_type) {
+    int id;
+    int count = 0;
+
+    for (id = 1; id <= NUM_PROBES; id++) {
+        int val = get_hwmon(sensor_id, "fan", "input", id, sensor_type);
+
+        if (val == SENSOR_ERROR) {
+            break;
+        }
+        if (val > 0) {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+void auto_select_sensor(int screen_id) {
+    int sid;
+    int best_id = SENSOR_ERROR;
+    int best_count = 0;
+    _Bool best_type = 0;
+    int *target_id;
+    _Bool *target_type;
+    int *target_lost;
+    const char *label;
+    const char *preferred_hwmon_name = NULL;
+    int best_pref_score = -1;
+
+    if (screen_id == SCREEN_TEMP) {
+        if (!have_temp || sensor_temp_forced) {
+            return;
+        }
+        target_id = &sensor_temp_id;
+        target_type = sensor_type_temp;
+        target_lost = sensor_lost_temp;
+        label = "Temperature";
+        if (cpu_vendor_amd) {
+            preferred_hwmon_name = "k10temp";
+        } else if (cpu_vendor_intel) {
+            preferred_hwmon_name = "coretemp";
+        }
+        if (debug_enabled) {
+            fprintf(stderr,
+                    "[g15stats] temp auto-select: forced=%d preferred_hwmon=%s\n",
+                    sensor_temp_forced,
+                    preferred_hwmon_name ? preferred_hwmon_name : "none");
+        }
+    } else {
+        if (!have_fan || sensor_fan_forced) {
+            return;
+        }
+        target_id = &sensor_fan_id;
+        target_type = sensor_type_fan;
+        target_lost = sensor_lost_fan;
+        label = "Fan";
+        if (debug_enabled) {
+            fprintf(stderr,
+                    "[g15stats] fan auto-select: forced=%d preferred labels contain cpu/processor/soc\n",
+                    sensor_fan_forced);
+        }
+    }
+
+    for (sid = 0; sid < MAX_SENSOR; sid++) {
+        int count_plain = count_sensor_probes(sid, screen_id, 0);
+        int count_device = count_sensor_probes(sid, screen_id, 1);
+        int local_count = count_plain;
+        _Bool local_type = 0;
+        int preferred_match = 0;
+        int fan_pref_score = 0;
+        int fan_nonzero_count = 0;
+
+        if (count_device > local_count) {
+            local_count = count_device;
+            local_type = 1;
+        }
+
+        if (screen_id == SCREEN_FAN && local_count > 0) {
+            fan_nonzero_count = count_nonzero_fan_probes(sid, local_type);
+            if (!sensor_fan_forced && fan_nonzero_count == 0) {
+                if (debug_enabled) {
+                    fprintf(stderr,
+                            "[g15stats] fan auto-select: sensor id=%d ignored (all discovered fan inputs are 0)\n",
+                            sid);
+                }
+                continue;
+            }
+
+            fan_pref_score = count_preferred_fan_labels(sid, local_type);
+            if (debug_enabled) {
+                fprintf(stderr,
+                        "[g15stats] fan auto-select: sensor id=%d probes=%d nonzero=%d preferred_label_hits=%d\n",
+                        sid,
+                        local_count,
+                        fan_nonzero_count,
+                        fan_pref_score);
+            }
+        }
+
+        if (preferred_hwmon_name != NULL && local_count > 0) {
+            preferred_match = hwmon_name_matches(sid, 0, preferred_hwmon_name)
+                    || hwmon_name_matches(sid, 1, preferred_hwmon_name);
+            if (debug_enabled) {
+                fprintf(stderr,
+                        "[g15stats] temp auto-select: sensor id=%d probes=%d preferred_match=%d\n",
+                        sid,
+                        local_count,
+                        preferred_match);
+            }
+            if (!preferred_match) {
+                continue;
+            }
+        }
+
+        if (screen_id == SCREEN_FAN && local_count > 0) {
+            if (fan_pref_score > best_pref_score
+                    || (fan_pref_score == best_pref_score && local_count > best_count)) {
+                best_pref_score = fan_pref_score;
+                best_count = local_count;
+                best_id = sid;
+                best_type = local_type;
+            }
+            continue;
+        }
+
+        if (local_count > best_count) {
+            best_count = local_count;
+            best_id = sid;
+            best_type = local_type;
+        }
+    }
+
+    if (best_id != SENSOR_ERROR && best_count > 0) {
+        *target_id = best_id;
+        target_type[best_id] = best_type;
+        target_lost[best_id] = RETRY_COUNT;
+        if (debug_enabled) {
+            fprintf(stderr,
+                    "[g15stats] auto-selected %s sensor: id=%d probes=%d path=%s\n",
+                    label,
+                    best_id,
+                    best_count,
+                    best_type ? "device" : "plain");
+            if (screen_id == SCREEN_TEMP) {
+                if (preferred_hwmon_name != NULL) {
+                    fprintf(stderr,
+                            "[g15stats] temp auto-select result: using preferred hwmon '%s' when available\n",
+                            preferred_hwmon_name);
+                } else {
+                    fprintf(stderr,
+                            "[g15stats] temp auto-select result: using generic best-probe candidate\n");
+                }
+            }
+        }
+    }
+}
+
 int get_sensors(g15_stats_info *sensors, int screen_id, _Bool *sensor_type, int *sensor_lost, int sensor_id) {
     char label[16];
     int count       = 0;
+    float amd_temp_pref_cur = -1.0f;
+    int amd_temp_pref_found = 0;
 
     if (screen_id == SCREEN_TEMP) {
         temp_tot_cur    = 0;
@@ -857,11 +1196,30 @@ int get_sensors(g15_stats_info *sensors, int screen_id, _Bool *sensor_type, int 
         sensors[count].max = get_sensor_max(count + 1, screen_id);
 
         if (screen_id == SCREEN_TEMP) {
+            char temp_label[64];
+
             sensors[count].cur /= 1000;
             sensors[count].max /= 1000;
             if (temp_tot_max < sensors[count].max) {
                 temp_tot_max = sensors[count].max;
             }
+
+            if (cpu_vendor_amd && sensor_temp_main == 0) {
+                if (get_hwmon_text(sensor_id,
+                                   "temp",
+                                   "label",
+                                   count + 1,
+                                   sensor_type[sensor_id],
+                                   temp_label,
+                                   sizeof(temp_label)) == 0) {
+                    if (is_amd_preferred_temp_label(temp_label)
+                            && sensors[count].cur > amd_temp_pref_cur) {
+                        amd_temp_pref_cur = sensors[count].cur;
+                        amd_temp_pref_found = 1;
+                    }
+                }
+            }
+
             if ((sensor_temp_main == (count +1)) || ((!sensor_temp_main) && (temp_tot_cur < sensors[count].cur))) {
                 temp_tot_cur = sensors[count].cur;
             }
@@ -873,6 +1231,16 @@ int get_sensors(g15_stats_info *sensors, int screen_id, _Bool *sensor_type, int 
             if (fan_tot_max < fan_tot_cur) {
                 fan_tot_max = (fan_tot_cur * 1.2);
             }
+        }
+    }
+
+    if (screen_id == SCREEN_TEMP && cpu_vendor_amd && sensor_temp_main == 0 && amd_temp_pref_found) {
+        temp_tot_cur = amd_temp_pref_cur;
+        if (debug_enabled && !debug_cpu_temp_logged) {
+            fprintf(stderr,
+                    "[g15stats] AMD temp summary auto: using max(Tctl,Tccd*) = %.1f C\n",
+                    temp_tot_cur);
+            debug_cpu_temp_logged = 1;
         }
     }
     if ((!count) && (sensors[0].cur == SENSOR_ERROR)) {
@@ -1648,6 +2016,9 @@ void draw_cpu_screen_load2(g15canvas *canvas, glibtop_cpu cpu, char *tmpstr) {
 
         x1 = BAR_START;
         x2 = BAR_START + bar_w - 1;
+        if (bar_chart_background) {
+            g15r_pixelBox(canvas, BAR_START, y1, BAR_END, y2, G15_COLOR_BLACK, 1, 0);
+        }
         g15r_pixelBox(canvas, x1, y1, x2, y2, G15_COLOR_BLACK, 1, 1);
 
         if (bar_h >= 2) {
@@ -1816,6 +2187,9 @@ void draw_cpu_screen_vertical(g15canvas *canvas, glibtop_cpu cpu, char *tmpstr) 
                                 sum_total,
                                 (BAR_BOTTOM + 1));
 
+        if (bar_chart_background) {
+            g15r_pixelBox(canvas, x1, 0, x2, BAR_BOTTOM, G15_COLOR_BLACK, 1, 0);
+        }
         g15r_pixelBox(canvas, x1, y2 - bar_h + 1, x2, y2, G15_COLOR_BLACK, 1, 1);
 
         if ((x2 - x1 + 1) >= 2) {
@@ -2820,6 +3194,8 @@ int main(int argc, const char *argv[]){
                      output_file_path,
                      sizeof(output_file_path));
 
+    init_cpu_vendor_flags();
+
     init_battery_sensor();
 
     for (i = 1; i < argc; i++) {
@@ -2850,6 +3226,9 @@ int main(int argc, const char *argv[]){
         }
         if(0==strncmp(argv[i],"-D",2)||0==strncmp(argv[i],"--debug",7)) {
             debug_enabled = 1;
+        }
+        if(0==strncmp(argv[i],"--bar-background",16)) {
+            bar_chart_background = 1;
         }
         if(0==strncmp(argv[i],"--cpu2-bar-height",17)) {
           if((i + 1) < argc) {
@@ -2888,6 +3267,7 @@ int main(int argc, const char *argv[]){
             printf("--info-rotate (-ir) enable the bottom info bar content rotate.\n");
             printf("--variable-cpu (-vc) the cpu cores will be calculated every time (for systems with the cpu hotplug).\n");
             printf("--debug (-D) enable debug logs to stderr.\n");
+            printf("--bar-background enable bar chart background boxes (default: off).\n");
             printf("--cpu2-bar-height [pixels] set target CPU LOAD2 bar height (1-%d).\n", BAR_BOTTOM + 1);
             printf("--no-screen-overlay disable one-refresh top-right overlay after L2/L3 screen change.\n");
             printf("--refresh [seconds] (-r) set the refresh interval to [seconds] The seconds must be between 1 and 300. ie -r 15\n");
@@ -2911,6 +3291,7 @@ int main(int argc, const char *argv[]){
             if (sensor_temp_id >= MAX_SENSOR) {
                 sensor_temp_id = 0;
             }
+            sensor_temp_forced = 1;
           }
         }
 
@@ -2928,6 +3309,7 @@ int main(int argc, const char *argv[]){
             if (sensor_fan_id >= MAX_SENSOR) {
                 sensor_fan_id = 0;
             }
+            sensor_fan_forced = 1;
           }
         }
 
@@ -2991,6 +3373,9 @@ int main(int argc, const char *argv[]){
         sensor_lost_fan[i] = 1;
         sensor_lost_temp[i] = 1;
     }
+
+    auto_select_sensor(SCREEN_TEMP);
+    auto_select_sensor(SCREEN_FAN);
 
     int cycle_old   = cycle;
     if (debug_enabled) {
