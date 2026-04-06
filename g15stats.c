@@ -1500,6 +1500,18 @@ void draw_summary_sensors_logic(g15canvas *canvas, char *tmpstr, const g15_stats
     }
 }
 
+int sensor_values_have_nonzero(const g15_stats_info *sensors, int count) {
+    int i;
+
+    for (i = 0; i < count; i++) {
+        if (sensors[i].cur > 0) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int move, int shift, int text_shift, int id) {
     // Memory section
     glibtop_mem mem;
@@ -1570,6 +1582,9 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
             int count;
 
             count = get_sensors(sensors, SCREEN_FAN, sensor_type_fan, sensor_lost_fan, sensor_fan_id);
+            if (!sensor_fan_forced && !sensor_values_have_nonzero(sensors, count)) {
+                count = 0;
+            }
             if ((count) && (have_fan)) {
                 draw_summary_sensors_logic(canvas, tmpstr, sensors, "RPM%5.f", text_shift * id, y1, y2, move, cur_shift, shift, count, fan_tot_cur, fan_tot_max);
                 id++;
@@ -2299,8 +2314,9 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
     int shift = 12;
     int shift2 = 24;
     int current_value=1;
-    int freq_cur = 1, freq_total = 1;
+    int freq_cur = 1;
     int freq_sum = 0;
+    int summary_bar_end = BAR_START;
 
     int spacer = 1;
     int height = 9;
@@ -2444,11 +2460,16 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
                 current_value = b_total[core] - b_idle[core];
                 drawBar_both(canvas, y1 + move, y2 + move, current_value, b_total[core], b_total[core] - current_value, b_total[core]);
 
+                if (b_total[core] > 0) {
+                    int bar_end = BAR_START + (((BAR_END - BAR_START + 1) * current_value) / b_total[core]);
+                    if (bar_end > summary_bar_end) {
+                        summary_bar_end = bar_end;
+                    }
+                }
+
                 if (have_freq) {
                     freq_cur = get_cpu_freq_cur(core);
-                    freq_total = get_cpu_freq_max(core);
                     freq_sum = maxi(freq_sum, freq_cur);
-                    drawBar_both(canvas, shift + y1 + move, shift + y2 + move, freq_cur, freq_total, freq_total - freq_cur, freq_total);
                 }
 
                 y1 = 0;
@@ -2460,22 +2481,39 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
 
     if (cycle == SCREEN_SUMMARY) {
         int text_shift;
+        int freq_x = 0;
+        int freq_y = 1;
+        int overlap = 0;
+
         if (summary_rows > 4) {
             text_shift = 7;
         } else {
             text_shift = 9;
         }
+
         if (have_freq) {
-            drawLine_both(canvas, shift + y1 + move, shift + y2 + move);
+            float ghz = ((float) freq_sum) / 1000000.0f;
 
-            sprintf(tmpstr, "FRQ %s", show_hertz_short((int) freq_sum));
+            snprintf(tmpstr, MAX_LINES, "%0.2fGHz", ghz);
+            freq_x = G15_LCD_WIDTH - (((int) strlen(tmpstr)) * 6) - 1;
+            if (freq_x < BAR_START) {
+                freq_x = BAR_START;
+            }
 
-            print_label(canvas, tmpstr, text_shift);
+            if (summary_bar_end >= freq_x) {
+                overlap = 1;
+            }
 
-            draw_summary_screen(canvas, tmpstr, y1, y2, move, shift, text_shift, 2);
-        } else {
-            draw_summary_screen(canvas, tmpstr, y1, y2, move, shift, text_shift, 1);
+            if (overlap) {
+                canvas->mode_xor = 1;
+            }
+            g15r_renderString(canvas, (unsigned char*) tmpstr, 0, G15_TEXT_MED, freq_x, freq_y);
+            if (overlap) {
+                canvas->mode_xor = 0;
+            }
         }
+
+        draw_summary_screen(canvas, tmpstr, y1, y2, move, shift, text_shift, 1);
     }
 }
 
