@@ -40,6 +40,7 @@ nav:
   - Contributing: contributing.md
   - Developing:
     - Creating Documentation: Developing/Creating-Documentation.md
+    - G15Mirror: Developing/G15Mirror.md
 
 markdown_extensions:
   - admonition
