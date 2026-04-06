@@ -30,6 +30,7 @@ This is a simple stats client showing graphs for CPU, MEM & Swap usage, Network 
 #include <config.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <string.h>
 #include <strings.h>
 #include <unistd.h>
@@ -365,12 +366,45 @@ unsigned long maxi(unsigned long a, unsigned long b) {
   return b;
 }
 
-void format_float(char *tmpstr, char *format_less, char * format_great, float value){
+void format_float(char *tmpstr, const char *format_less, const char *format_great, float value){
     if (value < 9.9) {
         sprintf(tmpstr,format_less,value);
       } else {
         sprintf(tmpstr,format_great,(unsigned long)value);
       }
+}
+
+void append_text(char *dst, size_t dst_size, const char *src) {
+    size_t len;
+
+    if (dst == NULL || src == NULL || dst_size == 0) {
+        return;
+    }
+
+    len = strlen(dst);
+    if (len >= (dst_size - 1)) {
+        return;
+    }
+
+    snprintf(dst + len, dst_size - len, "%s", src);
+}
+
+void append_textf(char *dst, size_t dst_size, const char *format, ...) {
+    size_t len;
+    va_list args;
+
+    if (dst == NULL || format == NULL || dst_size == 0) {
+        return;
+    }
+
+    len = strlen(dst);
+    if (len >= (dst_size - 1)) {
+        return;
+    }
+
+    va_start(args, format);
+    vsnprintf(dst + len, dst_size - len, format, args);
+    va_end(args);
 }
 
 char * show_bytes_short(unsigned long bytes) {
@@ -402,7 +436,7 @@ char * show_bytes(unsigned long bytes) {
     return tmpstr;
 }
 
-char * show_hertz_logic(int hertz, char *hz) {
+char * show_hertz_logic(int hertz, const char *hz) {
     static char tmpstr[32];
     if (hertz >= 1000000) {
         format_float(tmpstr, "%3.1fG","%3.fG", (float)hertz / 1000000);
@@ -411,8 +445,8 @@ char * show_hertz_logic(int hertz, char *hz) {
     } else {
         sprintf(tmpstr, "%3iK", hertz);
     }
-    if (strlen((char *)hz) > 0) {
-        strcat(tmpstr, hz);
+    if (hz[0] != '\0') {
+        append_text(tmpstr, sizeof(tmpstr), hz);
     }
     return tmpstr;
 }
@@ -425,9 +459,9 @@ char * show_hertz(int hertz) {
     return show_hertz_logic(hertz, "Hz");
 }
 
-void print_vert_label_logic(g15canvas *canvas, char *label, unsigned int sx){
+void print_vert_label_logic(g15canvas *canvas, const char *label, unsigned int sx){
     int i;
-    int len =strlen((char *)label);
+    int len = strlen(label);
     if (len > 5) {
         len = 5;
     }
@@ -451,14 +485,34 @@ void print_vert_label_logic(g15canvas *canvas, char *label, unsigned int sx){
     }
     char val[2];
     for (i=0; i<len; i++) {
-        memcpy (val, &(label[i]), 1);
+        val[0] = label[i];
         val[1] = '\0';
         g15r_renderString (canvas, (unsigned char*)val, i, G15_TEXT_MED, sx, starty+(i*incy));
     }
 }
 
-void print_vert_label(g15canvas *canvas, char *label){
+void print_vert_label(g15canvas *canvas, const char *label){
     print_vert_label_logic(canvas, label, TEXT_RIGHT);
+}
+
+void init_battery_sensor(void) {
+    int i;
+
+    for (i = 0; i < NUM_BATS; i++) {
+        FILE *fd_state;
+        char filename[30];
+
+        snprintf(filename, sizeof(filename), "/proc/acpi/battery/BAT%d/state", i);
+        fd_state = fopen(filename, "r");
+        if (fd_state != NULL) {
+            fclose(fd_state);
+            sensor_lost_bat = RETRY_COUNT;
+            return;
+        }
+    }
+
+    have_bat = 0;
+    printf("Battery sensor doesn't appear to exist. Battery screen will be disabled.\n");
 }
 
 void drawBar_reversed (g15canvas * canvas, int x1, int y1, int x2, int y2, int color,
@@ -568,7 +622,7 @@ void init_cpu_count(void) {
     }
 }
 
-int get_sysfs_value(char *filename) {
+int get_sysfs_value(const char *filename) {
     int ret_val = -1;
     FILE *fd_main;
     static char tmpstr [MAX_LINES];
@@ -586,7 +640,7 @@ int get_sysfs_value(char *filename) {
     return ret_val;
 }
 
-int get_processor_freq(char *which, int core) {
+int get_processor_freq(const char *which, int core) {
     static char tmpstr [MAX_LINES];
     sprintf(tmpstr, "/sys/devices/system/cpu/cpu%d/cpufreq/%s", core, which);
     return get_sysfs_value(tmpstr);
@@ -627,7 +681,7 @@ int get_cpu_freq_min(int core) {
     return ret_val;
 }
 
-int get_hwmon(int sensor_id, char *sensor, char *which, int id, _Bool sensor_type) {
+int get_hwmon(int sensor_id, const char *sensor, const char *which, int id, _Bool sensor_type) {
     char tmpstr [MAX_LINES];
     if(sensor_type) {
         sprintf(tmpstr, "/sys/class/hwmon/hwmon%d/device/%s%d_%s", sensor_id, sensor, id, which);
@@ -653,7 +707,7 @@ int get_sensor_max(int id, int screen_id) {
     }
 }
 
-int get_next(int sensor_id, int *sensor_lost){
+int get_next(int sensor_id, const int *sensor_lost){
     int new_sensor_id;
     new_sensor_id = sensor_id;
     do {
@@ -782,18 +836,14 @@ void print_swap_info(g15canvas *canvas, char *tmpstr) {
 }
 
 void print_net_peak_info(g15canvas *canvas, char *tmpstr) {
-    sprintf(tmpstr,"Peak IN %s/s|",show_bytes(net_max_in));
-    strcat(tmpstr,"Peak OUT ");
-    strcat(tmpstr,show_bytes(net_max_out));
-    strcat(tmpstr,"/s");
+    snprintf(tmpstr, MAX_LINES, "Peak IN %s/s|", show_bytes(net_max_in));
+    append_textf(tmpstr, MAX_LINES, "Peak OUT %s/s", show_bytes(net_max_out));
     g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80-(strlen(tmpstr)*4)/2, INFO_ROW);
 }
 
 void print_net_current_info(g15canvas *canvas, char *tmpstr) {
-    sprintf(tmpstr,"Current IN %s/s|",show_bytes(net_cur_in));
-    strcat(tmpstr,"Current OUT ");
-    strcat(tmpstr,show_bytes(net_cur_out));
-    strcat(tmpstr,"/s");
+    snprintf(tmpstr, MAX_LINES, "Current IN %s/s|", show_bytes(net_cur_in));
+    append_textf(tmpstr, MAX_LINES, "Current OUT %s/s", show_bytes(net_cur_out));
     g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80-(strlen(tmpstr)*4)/2, INFO_ROW);
 }
 
@@ -809,32 +859,32 @@ void print_freq_info(g15canvas *canvas, char *tmpstr) {
         for (core = 0; core < 3; core++) {
             snprintf(proc, sizeof(proc), "C%d %s", core, show_hertz_short(get_cpu_freq_cur(core)));
             if (printed > 0) {
-                strncat(tmpstr, "|", MAX_LINES - strlen(tmpstr) - 1);
+                append_text(tmpstr, MAX_LINES, "|");
             }
-            strncat(tmpstr, proc, MAX_LINES - strlen(tmpstr) - 1);
+            append_text(tmpstr, MAX_LINES, proc);
             printed++;
         }
 
-        strncat(tmpstr, "|...|", MAX_LINES - strlen(tmpstr) - 1);
+        append_text(tmpstr, MAX_LINES, "|...|");
 
         for (core = ncpu - 3; core < ncpu; core++) {
             snprintf(proc, sizeof(proc), "C%d %s", core, show_hertz_short(get_cpu_freq_cur(core)));
-            strncat(tmpstr, proc, MAX_LINES - strlen(tmpstr) - 1);
+            append_text(tmpstr, MAX_LINES, proc);
             if ((core + 1) < ncpu) {
-                strncat(tmpstr, "|", MAX_LINES - strlen(tmpstr) - 1);
+                append_text(tmpstr, MAX_LINES, "|");
             }
         }
     } else {
         for (core = 0; core < ncpu; core++) {
             snprintf(proc, sizeof(proc), "C%d ", core);
             if (printed > 0) {
-                strncat(tmpstr, "|", MAX_LINES - strlen(tmpstr) - 1);
+                append_text(tmpstr, MAX_LINES, "|");
             }
-            strncat(tmpstr, proc, MAX_LINES - strlen(tmpstr) - 1);
+            append_text(tmpstr, MAX_LINES, proc);
             if (ncpu < 4) {
-                strncat(tmpstr, show_hertz(get_cpu_freq_cur(core)), MAX_LINES - strlen(tmpstr) - 1);
+                append_text(tmpstr, MAX_LINES, show_hertz(get_cpu_freq_cur(core)));
             } else {
-                strncat(tmpstr, show_hertz_short(get_cpu_freq_cur(core)), MAX_LINES - strlen(tmpstr) - 1);
+                append_text(tmpstr, MAX_LINES, show_hertz_short(get_cpu_freq_cur(core)));
             }
             printed++;
         }
@@ -905,8 +955,8 @@ void print_label(g15canvas *canvas, char *tmpstr, int cur_shift) {
     g15r_renderString(canvas, (unsigned char*) tmpstr, 0, G15_TEXT_MED, TEXT_LEFT, cur_shift + 1);
 }
 
-void draw_summary_sensors_logic(g15canvas *canvas, char *tmpstr, g15_stats_info *sensors, 
-        char *label, int text_shift, int y1, int y2, int move, int cur_shift, int shift, int count, float tot_cur, float tot_max) {
+void draw_summary_sensors_logic(g15canvas *canvas, char *tmpstr, const g15_stats_info *sensors,
+        const char *label, int text_shift, int y1, int y2, int move, int cur_shift, int shift, int count, float tot_cur, float tot_max) {
 
     if (count) {
         int j = 0;
@@ -914,8 +964,8 @@ void draw_summary_sensors_logic(g15canvas *canvas, char *tmpstr, g15_stats_info 
         step = y2 / count;
         rest = y2 - (step * count);
         int y = cur_shift + y1;
-        int last_y;
         for (j = 0; j < count; j++) {
+            int last_y;
             last_y = y;
             if( j ) {
                 last_y++;
@@ -962,9 +1012,6 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
         }
     }
 
-    int y;
-    int count;
-
     // Memory section
     sprintf(tmpstr, "MEM %3.f%%", ((float) (mem_used) / (float) mem_total)*100);
     print_label(canvas, tmpstr, text_shift * id);
@@ -976,6 +1023,8 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
 
     // Network section
     if (have_nic) {
+        int y;
+
         y = y2 / 2;
 
         drawLine_both(canvas, cur_shift + y1 + move, cur_shift + y2 + move);
@@ -996,6 +1045,8 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
         memset(sensors, 0, sizeof(sensors));
         // Temperature section
         if ((have_temp) && (id < summary_rows)) {
+            int count;
+
             count = get_sensors(sensors, SCREEN_TEMP, sensor_type_temp, sensor_lost_temp, sensor_temp_id);
             if ((count) && (have_temp)) {
                 draw_summary_sensors_logic(canvas, tmpstr, sensors, "TEM %3.f\xb0", text_shift * id, y1, y2, move, cur_shift, shift, count, temp_tot_cur, temp_tot_max);
@@ -1006,6 +1057,8 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
 
         // Fan section
         if ((have_fan) && (id < summary_rows)) {
+            int count;
+
             count = get_sensors(sensors, SCREEN_FAN, sensor_type_fan, sensor_lost_fan, sensor_fan_id);
             if ((count) && (have_fan)) {
                 draw_summary_sensors_logic(canvas, tmpstr, sensors, "RPM%5.f", text_shift * id, y1, y2, move, cur_shift, shift, count, fan_tot_cur, fan_tot_max);
@@ -1573,12 +1626,12 @@ void draw_net_screen(g15canvas *canvas, char *tmpstr, char *interface) {
     g15r_drawLine (canvas, 53, 0, 53, 34, G15_COLOR_BLACK);
     g15r_drawLine (canvas, 54, 0, 54, 34, G15_COLOR_BLACK);
 
-    sprintf(tmpstr,"IN %s",show_bytes(netload.bytes_in));
+    snprintf(tmpstr, MAX_LINES, "IN %s", show_bytes(netload.bytes_in));
     g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 2);
-    sprintf(tmpstr,"OUT %s",show_bytes(netload.bytes_out));
+    snprintf(tmpstr, MAX_LINES, "OUT %s", show_bytes(netload.bytes_out));
     g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 26);
 
-    sprintf(tmpstr,"%s",interface);
+    snprintf(tmpstr, MAX_LINES, "%s", interface);
     g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_LARGE, 25-(strlen(tmpstr)*9)/2, 14);
 
     if (net_scale_absolute) {
@@ -1609,7 +1662,7 @@ void draw_bat_screen(g15canvas *canvas, char *tmpstr, int all) {
 		bats[i].cur_charge = 0;
 		bats[i].status = -1;
 
-		sprintf(filename, "/proc/acpi/battery/BAT%d/state", i);
+		snprintf(filename, sizeof(filename), "/proc/acpi/battery/BAT%d/state", i);
 		fd_state=fopen (filename,"r");
 		if (fd_state!=NULL)
 		{
@@ -1618,7 +1671,7 @@ void draw_bat_screen(g15canvas *canvas, char *tmpstr, int all) {
 				// Parse the state file for battery info
 				if (strcasestr (line,"remaining capacity")!=0)
 				{
-					strncpy ((char *)value,((char *)line)+25,5);
+					snprintf(value, sizeof(value), "%.5s", line + 25);
 					bats[i].cur_charge=atoi (value);
 				}
 				if (strcasestr (line,"charging state")!=0)
@@ -1638,7 +1691,7 @@ void draw_bat_screen(g15canvas *canvas, char *tmpstr, int all) {
 				}
 			}
 			fclose (fd_state);
-			sprintf(filename, "/proc/acpi/battery/BAT%d/info", i);
+			snprintf(filename, sizeof(filename), "/proc/acpi/battery/BAT%d/info", i);
 			fd_info=fopen (filename,"r");
 
 			if (fd_info!=NULL)
@@ -1648,7 +1701,7 @@ void draw_bat_screen(g15canvas *canvas, char *tmpstr, int all) {
 					// Parse the info file for battery info
 					if (strcasestr (line,"last full capacity")!=0)
 					{
-						strncpy ((char *)value,((char *)line)+25,5);
+						snprintf(value, sizeof(value), "%.5s", line + 25);
 						bats[i].max_charge=atoi (value);
 					}
 				}
@@ -1690,7 +1743,7 @@ void draw_bat_screen(g15canvas *canvas, char *tmpstr, int all) {
                     {
                             charge = ((float)bats[i].cur_charge/(float)bats[i].max_charge)*100;
                     }
-                    sprintf(tmpstr,"Bt%d %2.f%%", i, charge);
+                    snprintf(tmpstr, MAX_LINES, "Bt%d %2.f%%", i, charge);
                     g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, (i*12) + 2);
                     g15r_drawBar(canvas, BAR_START, bar_top, BAR_END, bar_bottom, G15_COLOR_BLACK, bats[i].cur_charge, bats[i].max_charge, 4);
             }
@@ -1704,7 +1757,7 @@ void draw_bat_screen(g15canvas *canvas, char *tmpstr, int all) {
             {
                     total_charge = ((float)tot_cur_charge/(float)tot_max_charge)*100;
             }
-            sprintf (tmpstr,"Total %2.f%% | ", total_charge);
+            snprintf(tmpstr, MAX_LINES, "Total %2.f%% | ", total_charge);
 
             for (i = 0; i < NUM_BATS; i++)
             {
@@ -1713,36 +1766,36 @@ void draw_bat_screen(g15canvas *canvas, char *tmpstr, int all) {
                     {
                             case -1:
                             {
-                                    sprintf(extension, "Bt%d - | ", i);
+                                    snprintf(extension, sizeof(extension), "Bt%d - | ", i);
                                     break;
                             }
                             case 0:
                             {
-                                    sprintf(extension, "Bt%d F | ", i);
+                                    snprintf(extension, sizeof(extension), "Bt%d F | ", i);
                                     break;
                             }
                             case 1:
                             {
-                                    sprintf(extension, "Bt%d C | ", i);
+                                    snprintf(extension, sizeof(extension), "Bt%d C | ", i);
                                     break;
                             }
                             case 2:
                             {
-                                    sprintf(extension, "Bt%d D | ", i);
+                                    snprintf(extension, sizeof(extension), "Bt%d D | ", i);
                                     break;
                             }
                     }
 
-                    strcat (tmpstr, extension);
+                    append_text(tmpstr, MAX_LINES, extension);
             }
 
             g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80-(strlen(tmpstr)*4)/2, INFO_ROW);
         }
 }
 
-void  draw_g15_stats_info_screen_logic(g15canvas *canvas, char *tmpstr, int all, int screen_type,
-        g15_stats_info *probes, int count, float tot_max, int *sensor_lost, int sensor_id,
-        char *vert_label, char *format_main, char *format_bottom) {
+void draw_g15_stats_info_screen_logic(g15canvas *canvas, char *tmpstr, int all, int screen_type,
+        const g15_stats_info *probes, int count, float tot_max, int *sensor_lost, int sensor_id,
+        const char *vert_label, const char *format_main, const char *format_bottom) {
     
     if ((!count) || (probes[0].cur == SENSOR_ERROR)) {
         return;
@@ -1784,7 +1837,7 @@ void  draw_g15_stats_info_screen_logic(g15canvas *canvas, char *tmpstr, int all,
             bar_top = (j * shift) + 1 + j;
             bar_bottom = ((j + 1)*shift) + j;
 
-            sprintf(tmpstr, format_main, j + 1, probes[j].cur);
+            snprintf(tmpstr, MAX_LINES, format_main, j + 1, probes[j].cur);
             g15r_renderString(canvas, (unsigned char*) tmpstr, 0, G15_TEXT_MED, 1, bar_top + info_shift);
             drawBar_both(canvas, bar_top, bar_bottom, probes[j].cur + 1, tot_max, tot_max - probes[j].cur, tot_max);
         }
@@ -1795,11 +1848,11 @@ void  draw_g15_stats_info_screen_logic(g15canvas *canvas, char *tmpstr, int all,
         char extension[16];
         tmpstr[0] = '\0';
         for (j = 0; j < count; j++) {
-            sprintf(extension, format_bottom, j + 1, probes[j].cur);
+            snprintf(extension, sizeof(extension), format_bottom, j + 1, probes[j].cur);
             if (j) {
-                strcat(tmpstr, "| ");
+                append_text(tmpstr, MAX_LINES, "| ");
             }
-            strcat(tmpstr, extension);
+            append_text(tmpstr, MAX_LINES, extension);
         }
         g15r_renderString(canvas, (unsigned char*) tmpstr, 0, G15_TEXT_SMALL, 80 - (strlen(tmpstr)*4) / 2, INFO_ROW);
     }
@@ -1831,7 +1884,10 @@ void calc_info_cycle(void) {
     info_cycle_timer++;
 
     if (!submode) {
-        switch ((int) (info_cycle_timer / info_pause)) {
+        int target_screen;
+
+        target_screen = (int) (info_cycle_timer / info_pause);
+        switch (target_screen) {
             case SCREEN_SUMMARY:
                 info_cycle = SCREEN_SUMMARY;
                 break;
@@ -1880,10 +1936,17 @@ void calc_info_cycle(void) {
                     info_cycle = SCREEN_NET2;
                     break;
                 }
+                info_cycle_timer += info_pause;
+                break;
             default:
                 info_cycle_timer = 0;
                 info_cycle = SCREEN_SUMMARY;
                 break;
+        }
+
+        if (target_screen >= SCREEN_NET2 && info_cycle == SCREEN_NET2 && !have_nic) {
+            info_cycle_timer = 0;
+            info_cycle = SCREEN_SUMMARY;
         }
     }
 }
@@ -2081,7 +2144,7 @@ void network_watch(void *iface) {
   char *interface = (char*)iface;
   static unsigned long previous_in;
   static unsigned long previous_out;
-  int i=0, j = 0, max_in = 0, max_out = 0;
+  int i = 0;
   glibtop_netload netload;
   int mac=0;
 
@@ -2095,7 +2158,9 @@ void network_watch(void *iface) {
     }
 
     while (1) {
-        j = 0, max_in = 0, max_out = 0;
+        int j;
+        int max_in = 0;
+        int max_out = 0;
 
         if (previous_in + previous_out) {
             net_cur_in = netload.bytes_in - previous_in;
@@ -2152,7 +2217,7 @@ void g15stats_wait(int seconds) {
     pthread_mutexattr_destroy(&mta);
 }
 
-int main(int argc, char *argv[]){
+int main(int argc, const char *argv[]){
 
     g15canvas *canvas;
     pthread_t keys_thread;
@@ -2174,6 +2239,8 @@ int main(int argc, char *argv[]){
                      &have_nic,
                      output_file_path,
                      sizeof(output_file_path));
+
+    init_battery_sensor();
 
     for (i = 1; i < argc; i++) {
         if (argv[i] == NULL) {
