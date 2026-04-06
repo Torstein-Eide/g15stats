@@ -83,6 +83,10 @@ _Bool have_bat  = 1;
 _Bool have_nic  = 0;
 _Bool variable_cpu = 0;
 _Bool debug_enabled = 0;
+_Bool show_screen_overlay = 1;
+
+int overlay_screen = -1;
+int overlay_ticks = 0;
 
 _Bool sensor_type_temp[MAX_SENSOR];
 _Bool sensor_type_fan[MAX_SENSOR];
@@ -185,18 +189,50 @@ static int get_forced_screen(void) {
 static const char *screen_name(int screen_id) {
     switch (screen_id) {
         case SCREEN_SUMMARY: return "SUMMARY";
-        case SCREEN_CPU: return "CPU";
-        case SCREEN_FREQ: return "FREQ";
-        case SCREEN_FREQ_AGG: return "FREQ_AGG";
-        case SCREEN_MEM: return "MEM";
+        case SCREEN_CPU: return "CPU LOAD";
+        case SCREEN_FREQ: return "CPU FREQ";
+        case SCREEN_FREQ_AGG: return "CPU FREQ AGG";
+        case SCREEN_MEM: return "MEMORY";
         case SCREEN_SWAP: return "SWAP";
-        case SCREEN_NET: return "NET";
-        case SCREEN_BAT: return "BAT";
-        case SCREEN_TEMP: return "TEMP";
+        case SCREEN_NET: return "NETWORK";
+        case SCREEN_BAT: return "BATTERY";
+        case SCREEN_TEMP: return "TEMPERATURE";
         case SCREEN_FAN: return "FAN";
-        case SCREEN_NET2: return "NET2";
+        case SCREEN_NET2: return "NETWORK PEAK";
         default: return "UNKNOWN";
     }
+}
+
+static int screen_is_visible(int screen_id) {
+    switch (screen_id) {
+        case SCREEN_NET:
+            return have_nic;
+        case SCREEN_BAT:
+            return have_bat;
+        case SCREEN_TEMP:
+            return have_temp;
+        case SCREEN_FAN:
+            return have_fan;
+        default:
+            return 1;
+    }
+}
+
+static int overlay_screen_number(int screen_id) {
+    int s;
+    int number = 0;
+
+    for (s = SCREEN_SUMMARY; s <= screen_id; s++) {
+        if (screen_is_visible(s)) {
+            number++;
+        }
+    }
+
+    if (number <= 0) {
+        number = screen_id + 1;
+    }
+
+    return number;
 }
 
 static void apply_config_value(const char *key,
@@ -225,10 +261,16 @@ static void apply_config_value(const char *key,
         variable_cpu = parse_bool_value(value);
     } else if (strcmp(key, "debug") == 0) {
         debug_enabled = parse_bool_value(value);
+    } else if (strcmp(key, "screen_overlay") == 0) {
+        show_screen_overlay = parse_bool_value(value);
     } else if (strcmp(key, "interface") == 0) {
         if (strlen(value) > 0) {
-            strncpy((char *)interface, value, 127);
-            interface[127] = '\0';
+            size_t iface_len = strlen(value);
+            if (iface_len > 127) {
+                iface_len = 127;
+            }
+            memcpy((char *)interface, value, iface_len);
+            interface[iface_len] = '\0';
             *nic_enabled = 1;
         }
     } else if (strcmp(key, "output_file") == 0) {
@@ -597,8 +639,9 @@ void drawAll_both(g15canvas *canvas, int y1, int y2, int bar_current, int bar_to
 int daemonise(int nochdir, int noclose) {
     pid_t pid;
 
-    if(nochdir<1)
-        chdir("/");
+    if (nochdir < 1 && chdir("/") != 0) {
+        return -1;
+    }
     pid = fork();
 
     switch(pid){
@@ -1104,8 +1147,8 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
 /* draw cpu screen.  if drawgraph = 0 then no graph is drawn */
 void draw_cpu_screen_unicore_logic(g15canvas *canvas, glibtop_cpu cpu, char *tmpstr, int drawgraph, int printlabels, int cpuandmemory) {
     int total,user,nice,sys,idle;
-    static int last_total,last_user,last_nice,last_sys,last_idle,last_iowait,
-            last_irq,b_total,b_user,b_nice,b_sys,b_idle,b_irq,b_iowait;
+    static int last_total,last_user,last_nice,last_sys,last_idle,
+            b_total,b_user,b_nice,b_sys,b_idle;
 
     g15r_clearScreen (canvas, G15_COLOR_WHITE);
 
@@ -1121,16 +1164,11 @@ void draw_cpu_screen_unicore_logic(g15canvas *canvas, glibtop_cpu cpu, char *tmp
         b_nice  = nice  - last_nice;
         b_sys   = sys   - last_sys;
         b_idle  = idle  - last_idle;
-        b_irq   = cpu.irq - last_irq;
-        b_iowait= cpu.iowait - last_iowait;
-
         last_total  = total;
         last_user   = user;
         last_nice   = nice;
         last_sys    = sys;
         last_idle   = idle;
-        last_irq    = cpu.irq;
-        last_iowait = cpu.iowait;
     } else if (b_total == 0) {
         b_total = 100;
         b_idle  = 100;
@@ -1359,10 +1397,9 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
     int total,user,nice,sys,idle;
     int sub_val;
     static int last_total[GLIBTOP_NCPU],last_user[GLIBTOP_NCPU],last_nice[GLIBTOP_NCPU],
-            last_sys[GLIBTOP_NCPU],last_idle[GLIBTOP_NCPU],last_iowait[GLIBTOP_NCPU],
-            last_irq[GLIBTOP_NCPU],b_total[GLIBTOP_NCPU],b_user[GLIBTOP_NCPU],
-            b_nice[GLIBTOP_NCPU],b_sys[GLIBTOP_NCPU],b_idle[GLIBTOP_NCPU],
-            b_irq[GLIBTOP_NCPU],b_iowait[GLIBTOP_NCPU];
+            last_sys[GLIBTOP_NCPU],last_idle[GLIBTOP_NCPU],
+            b_total[GLIBTOP_NCPU],b_user[GLIBTOP_NCPU],
+            b_nice[GLIBTOP_NCPU],b_sys[GLIBTOP_NCPU],b_idle[GLIBTOP_NCPU];
 
     init_cpu_count();
 
@@ -1474,16 +1511,11 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
             b_nice[core]    = nice  - last_nice[core];
             b_sys[core]     = sys   - last_sys[core];
             b_idle[core]    = idle  - last_idle[core];
-            b_irq[core]     = cpu.xcpu_irq[core]    - last_irq[core];
-            b_iowait[core]  = cpu.xcpu_iowait[core] - last_iowait[core];
-
             last_total[core]	= total;
             last_user[core] 	= user;
             last_nice[core] 	= nice;
             last_sys[core] 	= sys;
             last_idle[core] 	= idle;
-            last_irq[core] 	= cpu.xcpu_irq[core];
-            last_iowait[core] 	= cpu.xcpu_iowait[core];
         } else if (b_total[core] == 0){
             b_total[core] = 100;
             b_idle[core]  = 100;
@@ -2011,6 +2043,26 @@ void print_info_label(g15canvas *canvas, char *tmpstr) {
     }
 }
 
+void draw_screen_overlay(g15canvas *canvas, char *tmpstr) {
+    int overlay_left = 40;
+    int number_x = 140;
+    int y1 = 0;
+    int y2 = 10;
+    char number_text[16];
+
+    if (!show_screen_overlay || overlay_ticks <= 0 || overlay_screen < 0) {
+        return;
+    }
+
+    snprintf(number_text, sizeof(number_text), "#%d", overlay_screen_number(overlay_screen));
+
+    g15r_pixelBox(canvas, overlay_left, y1, G15_LCD_WIDTH - 1, y2, G15_COLOR_WHITE, 1, 1);
+    snprintf(tmpstr, MAX_LINES, "%s", screen_name(overlay_screen));
+    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, overlay_left, 1);
+    g15r_renderString(canvas, (unsigned char*)number_text, 0, G15_TEXT_MED, number_x, 1);
+    overlay_ticks--;
+}
+
 void keyboard_watch(void) {
     unsigned int keystate;
     int change   = 0;
@@ -2151,6 +2203,11 @@ void keyboard_watch(void) {
 
             if (submode > MAX_SUB_MODE) {
                 submode = 0;
+            }
+
+            if ((change == CHANGE_UP || change == CHANGE_DOWN) && show_screen_overlay) {
+                overlay_screen = cycle;
+                overlay_ticks = 1;
             }
 
             if (change) {
@@ -2295,6 +2352,10 @@ int main(int argc, const char *argv[]){
         if(0==strncmp(argv[i],"-D",2)||0==strncmp(argv[i],"--debug",7)) {
             debug_enabled = 1;
         }
+        if(0==strncmp(argv[i],"--no-screen-overlay",19)) {
+            show_screen_overlay = 0;
+            overlay_ticks = 0;
+        }
 
         if(0==strncmp(argv[i],"-h",2)||0==strncmp(argv[i],"--help",6)) {
             printf("%s %s - (c) 2008-2010 Mike Lampard, Piotr Czarnecki; 2026 Torstein Eide\n",PACKAGE_NAME,VERSION);
@@ -2316,6 +2377,7 @@ int main(int argc, const char *argv[]){
             printf("--info-rotate (-ir) enable the bottom info bar content rotate.\n");
             printf("--variable-cpu (-vc) the cpu cores will be calculated every time (for systems with the cpu hotplug).\n");
             printf("--debug (-D) enable debug logs to stderr.\n");
+            printf("--no-screen-overlay disable one-refresh top-right overlay after L2/L3 screen change.\n");
             printf("--refresh [seconds] (-r) set the refresh interval to [seconds] The seconds must be between 1 and 300. ie -r 15\n");
             printf("--disable-freq (-df) disable monitoring CPUs frequencies.\n\n");
             printf("--output-file [path] (-o) write rendered LCD frames to [path] instead of sending to g15daemon\n");
@@ -2548,6 +2610,7 @@ int main(int argc, const char *argv[]){
         }
         cycle_old   = cycle;
         print_info_label(canvas, tmpstr);
+        draw_screen_overlay(canvas, tmpstr);
 
         canvas->mode_xor = 0;
 
