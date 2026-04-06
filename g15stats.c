@@ -86,6 +86,7 @@ _Bool variable_cpu = 0;
 _Bool debug_enabled = 0;
 _Bool show_screen_overlay = 1;
 _Bool bar_chart_background = 0;
+_Bool temp_filter_bypass = 0;
 
 int overlay_screen = -1;
 int overlay_ticks = 0;
@@ -113,6 +114,11 @@ _Bool cpu_vendor_amd = 0;
 _Bool cpu_vendor_intel = 0;
 _Bool debug_cpu_temp_logged = 0;
 
+#define TEMP_FILTER_WINDOW 5
+static float temp_hist[MAX_SENSOR][NUM_PROBES][TEMP_FILTER_WINDOW];
+static int temp_hist_idx[MAX_SENSOR][NUM_PROBES];
+static int temp_hist_count[MAX_SENSOR][NUM_PROBES];
+
 /** Holds the number of the cpus */
 int ncpu;
 
@@ -126,7 +132,7 @@ unsigned long net_cur_in    = 0;
 unsigned long net_cur_out   = 0;
 
 float temp_tot_cur  = 1;
-float temp_tot_max  = 1;
+float temp_tot_max  = 90;
 
 float fan_tot_cur   = 1;
 float fan_tot_max   = 1;
@@ -342,6 +348,8 @@ static void apply_config_value(const char *key,
         show_screen_overlay = parse_bool_value(value);
     } else if (strcmp(key, "bar_background") == 0) {
         bar_chart_background = parse_bool_value(value);
+    } else if (strcmp(key, "temp_filter_bypass") == 0) {
+        temp_filter_bypass = parse_bool_value(value);
     } else if (strcmp(key, "cpu2_min_bar_width") == 0) {
         if (parse_int_value(value, &parsed)
                 && parsed >= 1
@@ -1061,6 +1069,42 @@ int count_nonzero_fan_probes(int sensor_id, _Bool sensor_type) {
     return count;
 }
 
+float filter_temp_sample(int sensor_id, int probe_index, float sample) {
+    int idx;
+    int count;
+    int i;
+    float sum = 0.0f;
+
+    if (temp_filter_bypass) {
+        return sample;
+    }
+    if (sensor_id < 0 || sensor_id >= MAX_SENSOR || probe_index < 1 || probe_index > NUM_PROBES) {
+        return sample;
+    }
+
+    probe_index -= 1;
+    idx = temp_hist_idx[sensor_id][probe_index];
+    temp_hist[sensor_id][probe_index][idx] = sample;
+
+    idx++;
+    if (idx >= TEMP_FILTER_WINDOW) {
+        idx = 0;
+    }
+    temp_hist_idx[sensor_id][probe_index] = idx;
+
+    count = temp_hist_count[sensor_id][probe_index];
+    if (count < TEMP_FILTER_WINDOW) {
+        count++;
+        temp_hist_count[sensor_id][probe_index] = count;
+    }
+
+    for (i = 0; i < count; i++) {
+        sum += temp_hist[sensor_id][probe_index][i];
+    }
+
+    return sum / (float) count;
+}
+
 void auto_select_sensor(int screen_id) {
     int sid;
     int best_id = SENSOR_ERROR;
@@ -1209,6 +1253,7 @@ int get_sensors(g15_stats_info *sensors, int screen_id, _Bool *sensor_type, int 
 
     if (screen_id == SCREEN_TEMP) {
         temp_tot_cur    = 0;
+        temp_tot_max    = 90;
         sprintf(label, "Temperature");
     } else { //SCREEN_FAN
         fan_tot_cur     = 0;
@@ -1226,6 +1271,7 @@ int get_sensors(g15_stats_info *sensors, int screen_id, _Bool *sensor_type, int 
 
             sensors[count].cur /= 1000;
             sensors[count].max /= 1000;
+            sensors[count].cur = filter_temp_sample(sensor_id, count + 1, sensors[count].cur);
             if (temp_tot_max < sensors[count].max) {
                 temp_tot_max = sensors[count].max;
             }
@@ -1518,7 +1564,7 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
     glibtop_get_mem(&mem);
 
     int mem_total = (mem.total / 1024);
-    int mem_used = mem_total - (mem.free / 1024);
+    int mem_used = (mem.user / 1024);
 
     int cur_shift = shift * id;
 
@@ -1535,10 +1581,26 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
     }
 
     // Memory section
-    sprintf(tmpstr, "MEM %3.f%%", ((float) (mem_used) / (float) mem_total)*100);
+    g15r_drawBar(canvas,
+                 BAR_START,
+                 cur_shift + y1 + move,
+                 BAR_END,
+                 cur_shift + y2 + move,
+                 G15_COLOR_BLACK,
+                 mem_used + 1,
+                 mem_total,
+                 4);
+
+    sprintf(tmpstr, "MEM %3.f%%", ((float) (mem_used) / (float) mem_total) * 100);
     print_label(canvas, tmpstr, text_shift * id);
 
-    drawAll_both(canvas, cur_shift + y1 + move, cur_shift + y2 + move, mem_used + 1, mem_total, mem_total - mem_used, mem_total);
+    snprintf(tmpstr, MAX_LINES, "%0.1fGB", ((float) mem_used) / (1024.0f * 1024.0f));
+    g15r_renderString(canvas,
+                      (unsigned char*)tmpstr,
+                      0,
+                      G15_TEXT_MED,
+                      G15_LCD_WIDTH - ((int) strlen(tmpstr) * 6) - 1,
+                      text_shift * id + 1);
 
     id++;
     cur_shift += shift;
@@ -1656,8 +1718,6 @@ void draw_cpu_screen_unicore_logic(g15canvas *canvas, glibtop_cpu cpu, char *tmp
         drawLine_both(canvas, 1, BAR_BOTTOM);
     }
     if (cpuandmemory) {
-        print_vert_label(canvas, "TOTAL");
-
         sprintf(tmpstr,"CPU %3.f%%",((float)(b_total-b_idle)/(float)b_total)*100);
         print_label(canvas, tmpstr, 0);
     } else if ((cycle == SCREEN_FREQ_AGG) && (mode[SCREEN_FREQ_AGG]) && (have_freq)) {
@@ -2321,6 +2381,25 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
     int spacer = 1;
     int height = 9;
     int move   = 0;
+    int summary_has_fan = 0;
+
+    if (have_fan) {
+        g15_stats_info summary_fan_sensors[NUM_PROBES];
+        int summary_fan_count;
+
+        memset(summary_fan_sensors, 0, sizeof(summary_fan_sensors));
+        summary_fan_count = get_sensors(summary_fan_sensors,
+                                        SCREEN_FAN,
+                                        sensor_type_fan,
+                                        sensor_lost_fan,
+                                        sensor_fan_id);
+        if (summary_fan_count > 0) {
+            if (sensor_fan_forced || sensor_values_have_nonzero(summary_fan_sensors, summary_fan_count)) {
+                summary_has_fan = 1;
+            }
+        }
+    }
+
     switch (cycle) {
         case    SCREEN_CPU :
             if(ncpu > 4){
@@ -2337,7 +2416,7 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
         case    SCREEN_SUMMARY :
             spacer = 0;
             if (!mode[SCREEN_SUMMARY]) {
-                summary_rows = 5;
+                summary_rows = summary_has_fan ? 5 : 4;
                 switch (ncpu) {
                     case 1  :
                     case 2  :
@@ -2355,7 +2434,7 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
                         break;
                 }
             } else {
-                summary_rows = 4;
+                summary_rows = summary_has_fan ? 4 : 3;
                 switch (ncpu) {
                     case 3  :
                     case 5  :
@@ -3328,6 +3407,9 @@ int main(int argc, const char *argv[]){
         if(0==strncmp(argv[i],"--bar-background",16)) {
             bar_chart_background = 1;
         }
+        if(0==strncmp(argv[i],"--temp-filter-bypass",20)) {
+            temp_filter_bypass = 1;
+        }
         if(0==strncmp(argv[i],"--cpu2-bar-height",17)) {
           if((i + 1) < argc) {
             i++;
@@ -3366,6 +3448,7 @@ int main(int argc, const char *argv[]){
             printf("--variable-cpu (-vc) the cpu cores will be calculated every time (for systems with the cpu hotplug).\n");
             printf("--debug (-D) enable debug logs to stderr.\n");
             printf("--bar-background enable bar chart background boxes (default: off).\n");
+            printf("--temp-filter-bypass disable 5-sample moving average for temperature sensors.\n");
             printf("--cpu2-bar-height [pixels] set target CPU LOAD2 bar height (1-%d).\n", BAR_BOTTOM + 1);
             printf("--no-screen-overlay disable one-refresh top-right overlay after L2/L3 screen change.\n");
             printf("--refresh [seconds] (-r) set the refresh interval to [seconds] The seconds must be between 1 and 300. ie -r 15\n");
