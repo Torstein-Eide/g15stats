@@ -1,0 +1,56 @@
+site_name: G15Stats
+site_description: A CPU/Memory/Swap/Network/Battery/Temperature/Fan Speed/CPU Frequencies usage meter for G15Daemon
+site_author: G15Stats Contributors
+repo_url: https://github.com/yourusername/g15stats
+repo_name: g15stats
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Usage: usage.md
+  - Options: options.md
+  - Screens: screens.md
+  - Requirements: requirements.md
+  - Contributing: contributing.md
+  - Developing:
+    - Creating Documentation: Developing/Creating-Documentation.md
+
+markdown_extensions:
+  - admonition
+  - codehilite
+  - footnotes
+  - meta
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/yourusername/g15stats
+
+copyright: Copyright &copy; 2026 G15Stats Contributors
