@@ -63,7 +63,7 @@ int g15screen_fd;
 int cycle       = 0;
 int info_cycle  = 0;
 /** Holds the mode type variable of the application running */
-int mode[MAX_SCREENS];
+int mode[MAX_SCREENS + 1];
 /** Holds the sub mode type variable of the application running */
 int submode     = 1;
 
@@ -81,6 +81,7 @@ _Bool have_fan  = 1;
 _Bool have_bat  = 1;
 _Bool have_nic  = 0;
 _Bool variable_cpu = 0;
+_Bool debug_enabled = 0;
 
 _Bool sensor_type_temp[MAX_SENSOR];
 _Bool sensor_type_fan[MAX_SENSOR];
@@ -204,6 +205,8 @@ static void apply_config_value(const char *key,
         }
     } else if (strcmp(key, "variable_cpu") == 0) {
         variable_cpu = parse_bool_value(value);
+    } else if (strcmp(key, "debug") == 0) {
+        debug_enabled = parse_bool_value(value);
     } else if (strcmp(key, "interface") == 0) {
         if (strlen(value) > 0) {
             strncpy((char *)interface, value, 127);
@@ -612,7 +615,14 @@ int get_cpu_freq_max(int core) {
 }
 
 int get_cpu_freq_min(int core) {
-    return get_processor_freq("cpuinfo_min_freq", core);
+    int ret_val;
+
+    ret_val = get_processor_freq("scaling_min_freq", core);
+    if (ret_val == SENSOR_ERROR) {
+        ret_val = get_processor_freq("cpuinfo_min_freq", core);
+    }
+
+    return ret_val;
 }
 
 int get_hwmon(int sensor_id, char *sensor, char *which, int id, _Bool sensor_type) {
@@ -1092,6 +1102,188 @@ void draw_cpu_screen_unicore(g15canvas *canvas, char *tmpstr, int drawgraph, int
     draw_cpu_screen_unicore_logic(canvas, cpu, tmpstr, drawgraph, printlabels, 0);
 }
 
+void draw_freq_screen_aggregate(g15canvas *canvas, char *tmpstr) {
+    int core;
+    int i;
+    int group_size = 1;
+    int group_count;
+    int max_bars_fit = (BAR_END - BAR_START + 1) / 3;
+    int bar_top = 1;
+    int bar_bottom = G15_LCD_HEIGHT - 1;
+    int bar_height = bar_bottom - bar_top + 1;
+    int global_max = 0;
+    int global_min = 0;
+    int global_sum = 0;
+    int global_count = 0;
+    int global_scale = 0;
+    int global_min_allowed = 0;
+    int baseline = 0;
+    static int last_logged_baseline = -1;
+    static int last_logged_group_count = -1;
+    static int last_logged_bar_width = -1;
+
+    if (!have_freq) {
+        return;
+    }
+
+    g15r_clearScreen(canvas, G15_COLOR_WHITE);
+
+    init_cpu_count();
+
+    if (max_bars_fit < 1) {
+        max_bars_fit = 1;
+    }
+
+    if (ncpu <= 0) {
+        return;
+    }
+
+    while (((ncpu + group_size - 1) / group_size) > max_bars_fit) {
+        group_size++;
+    }
+
+    group_count = (ncpu + group_size - 1) / group_size;
+
+    if (debug_enabled) {
+        int bar_width;
+
+        bar_width = (BAR_END - BAR_START + 1) / group_count;
+        if (bar_width != last_logged_bar_width || group_count != last_logged_group_count) {
+            fprintf(stderr,
+                    "[g15stats] freq agg layout: bars=%d, bar_width=%d px, group_size=%d\n",
+                    group_count,
+                    bar_width,
+                    group_size);
+            last_logged_bar_width = bar_width;
+            last_logged_group_count = group_count;
+        }
+    }
+
+    for (core = 0; core < ncpu; core++) {
+        int freq_cur = get_cpu_freq_cur(core);
+        int freq_min = get_cpu_freq_min(core);
+
+        if (freq_cur <= 0) {
+            continue;
+        }
+
+        if (global_count == 0 || freq_cur > global_max) {
+            global_max = freq_cur;
+        }
+        if (global_count == 0 || freq_cur < global_min) {
+            global_min = freq_cur;
+        }
+
+        global_sum += freq_cur;
+        global_count++;
+
+        if (freq_min > 0 && (global_min_allowed == 0 || freq_min < global_min_allowed)) {
+            global_min_allowed = freq_min;
+        }
+    }
+
+    if (global_count == 0) {
+        return;
+    }
+
+    if (global_scale <= 0) {
+        global_scale = global_max;
+    }
+    if (global_scale <= 0) {
+        global_scale = 1;
+    }
+
+    if (global_min_allowed > 100000) {
+        baseline = global_min_allowed - 100000;
+    } else {
+        baseline = 0;
+    }
+    if (global_scale <= baseline) {
+        baseline = 0;
+    }
+
+    if (debug_enabled && baseline != last_logged_baseline) {
+        fprintf(stderr,
+                "[g15stats] freq baseline changed: %.1f MHz (min allowed: %.1f MHz, offset: -100.0 MHz)\n",
+                ((double) baseline) / 1000.0,
+                ((double) global_min_allowed) / 1000.0);
+        last_logged_baseline = baseline;
+    }
+
+    for (i = 0; i < group_count; i++) {
+        int start_core = i * group_size;
+        int end_core = start_core + group_size;
+        int sum = 0;
+        int count = 0;
+        int x1;
+        int x2;
+        int avg;
+        int h;
+        int bar_value;
+        int bar_total;
+        int y1;
+
+        if (end_core > ncpu) {
+            end_core = ncpu;
+        }
+
+        for (core = start_core; core < end_core; core++) {
+            int freq_cur = get_cpu_freq_cur(core);
+            if (freq_cur > 0) {
+                sum += freq_cur;
+                count++;
+            }
+        }
+
+        if (count == 0) {
+            continue;
+        }
+
+        avg = sum / count;
+
+        x1 = BAR_START + ((i * (BAR_END - BAR_START + 1)) / group_count);
+        x2 = BAR_START + ((((i + 1) * (BAR_END - BAR_START + 1)) / group_count) - 1);
+        if (x2 > x1) {
+            x2--;
+        }
+        if (x2 < x1) {
+            x2 = x1;
+        }
+
+        bar_value = avg - baseline;
+        bar_total = global_scale - baseline;
+        if (bar_total <= 0) {
+            bar_total = global_scale;
+            bar_value = avg;
+        }
+        if (bar_value < 0) {
+            bar_value = 0;
+        }
+
+        h = (bar_value * bar_height) / bar_total;
+        if (h < 1) {
+            h = 1;
+        }
+        if (h > bar_height) {
+            h = bar_height;
+        }
+
+        y1 = bar_bottom - h + 1;
+        g15r_pixelBox(canvas, x1, y1, x2, bar_bottom, G15_COLOR_BLACK, 1, 1);
+    }
+
+    sprintf(tmpstr, "M:%s", show_hertz_short(global_max));
+    g15r_renderString(canvas, (unsigned char*) tmpstr, 0, G15_TEXT_MED, 1, 2);
+
+    sprintf(tmpstr, "A:%s", show_hertz_short(global_sum / global_count));
+    g15r_renderString(canvas, (unsigned char*) tmpstr, 0, G15_TEXT_MED, 1, 14);
+
+    sprintf(tmpstr, "L:%s", show_hertz_short(global_min));
+    g15r_renderString(canvas, (unsigned char*) tmpstr, 0, G15_TEXT_MED, 1, 26);
+
+    print_vert_label(canvas, "FREQ");
+}
+
 void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
     glibtop_cpu cpu;
     int core,ncpumax;
@@ -1125,6 +1317,9 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
         case SCREEN_FREQ   :
             draw_cpu_screen_unicore_logic(canvas, cpu, tmpstr, 0, 0, 0);
             break;
+        case SCREEN_FREQ_AGG:
+            draw_freq_screen_aggregate(canvas, tmpstr);
+            return;
     }
 
     int y1=0, y2=BAR_BOTTOM;
@@ -1647,6 +1842,7 @@ void calc_info_cycle(void) {
                 info_cycle = SCREEN_CPU;
                 break;
             case SCREEN_FREQ:
+            case SCREEN_FREQ_AGG:
                 if (have_freq) {
                     info_cycle = SCREEN_FREQ;
                     break;
@@ -1707,6 +1903,8 @@ void print_info_label(g15canvas *canvas, char *tmpstr) {
         case SCREEN_FREQ   :
             print_freq_info(canvas, tmpstr);
             break;
+        case SCREEN_FREQ_AGG:
+            break;
         case SCREEN_MEM :
             print_mem_info(canvas, tmpstr);
             break;
@@ -1742,7 +1940,14 @@ void keyboard_watch(void) {
     int change   = 0;
 
     while(1) {
-        recv(g15screen_fd,&keystate,4,0);
+        int recv_len;
+
+        keystate = 0;
+        recv_len = recv(g15screen_fd, &keystate, 4, 0);
+        if (recv_len != 4) {
+            usleep(100 * 900);
+            continue;
+        }
 
         if(keystate & G15_KEY_L1) {
         }
@@ -1996,9 +2201,12 @@ int main(int argc, char *argv[]){
         if(0==strncmp(argv[i],"-vc",3)||0==strncmp(argv[i],"--variable-cpu",14)) {
             variable_cpu = 1;
         }
+        if(0==strncmp(argv[i],"-D",2)||0==strncmp(argv[i],"--debug",7)) {
+            debug_enabled = 1;
+        }
 
         if(0==strncmp(argv[i],"-h",2)||0==strncmp(argv[i],"--help",6)) {
-            printf("%s %s - (c) 2008-2010 Mike Lampard, Piotr Czarnecki\n",PACKAGE_NAME,VERSION);
+            printf("%s %s - (c) 2008-2010 Mike Lampard, Piotr Czarnecki; 2026 Torstein Eide\n",PACKAGE_NAME,VERSION);
             printf("Usage: %s [Options]\n", PACKAGE_NAME);
             printf("Options:\n");
             printf("--daemon (-d) run in background\n");
@@ -2016,6 +2224,7 @@ int main(int argc, char *argv[]){
                     "\tDefault is to scale fullsize, similar to apps like gkrellm.\n");
             printf("--info-rotate (-ir) enable the bottom info bar content rotate.\n");
             printf("--variable-cpu (-vc) the cpu cores will be calculated every time (for systems with the cpu hotplug).\n");
+            printf("--debug (-D) enable debug logs to stderr.\n");
             printf("--refresh [seconds] (-r) set the refresh interval to [seconds] The seconds must be between 1 and 300. ie -r 15\n");
             printf("--disable-freq (-df) disable monitoring CPUs frequencies.\n\n");
             printf("--output-file [path] (-o) write rendered LCD frames to [path] instead of sending to g15daemon\n");
@@ -2124,6 +2333,7 @@ int main(int argc, char *argv[]){
             case SCREEN_SUMMARY:
             case SCREEN_CPU:
             case SCREEN_FREQ:
+            case SCREEN_FREQ_AGG:
                 draw_cpu_screen_multicore(canvas, tmpstr, unicore);
                 break;
             case SCREEN_MEM:
