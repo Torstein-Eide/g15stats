@@ -141,26 +141,20 @@ G15Stats uses `docs/requirements.txt` to manage the Python dependencies for buil
 
 === "docker"
 
-    Build the Docker image from the repository root:
+    Build the docs inside the official Material for MkDocs container:
 
     ```bash
-    docker build -t g15stats-docs -f doc/Dockerfile .
-    ```
-
-    Build the docs inside the container:
-
-    ```bash
-    docker run --rm -v "$(pwd):/docs" g15stats-docs build
+    docker run --rm -v "$(pwd):/docs" squidfunk/mkdocs-material build
     ```
 
     To fail on warnings (useful before submitting changes):
 
     ```bash
-    docker run --rm -v "$(pwd):/docs" g15stats-docs build --strict
+    docker run --rm -v "$(pwd):/docs" squidfunk/mkdocs-material build --strict
     ```
 
 
-This will output all the documentation in HTML format to `g15stats/site/`
+This will output all the documentation in HTML format to `site/`
 (this folder will be ignored from any commits).
 
 A configuration file for building G15Stats docs is included in the
@@ -195,7 +189,7 @@ enable it, add `--livereload`.
     To listen on localhost only, you can use the following directive:
 
     ```bash
-    docker run --rm -p 127.0.0.1:8000:8000 -v "$(pwd):/docs" g15stats-docs
+    docker run --rm -p 127.0.0.1:8000:8000 -v "$(pwd):/docs" squidfunk/mkdocs-material
     ```
 
 Now you will find the complete set of G15Stats documentation by opening your
@@ -228,7 +222,7 @@ to listen on all interfaces:
     The `squidfunk/mkdocs-material` default to 0.0.0.0, so you can just run:
 
     ```bash
-    docker run --rm -p 8000:8000 -v "$(pwd):/docs" g15stats-docs
+    docker run --rm -p 8000:8000 -v "$(pwd):/docs" squidfunk/mkdocs-material
     ```
 
 WARNING: this is not a secure web server, do this at your own risk, with

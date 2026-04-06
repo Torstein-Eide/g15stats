@@ -88,5 +88,5 @@ ltmain.sh
 Thumbs.db
 
 
-#mkdown
-sites
+# MkDocs
+site/

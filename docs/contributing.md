@@ -31,7 +31,7 @@ When reporting an issue, please include:
 
 - **Steps to Reproduce**:
   1. Step 1
-  2. Step 3
+  2. Step 2
   3. Step 3
 
 - **Expected Behavior**: What should happen
@@ -45,7 +45,7 @@ When reporting an issue, please include:
 ### Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/g15stats.git
+git clone https://github.com/Torstein-Eide/g15stats.git
 cd g15stats
 ```
 

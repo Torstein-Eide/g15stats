@@ -16,8 +16,8 @@
 - `configure` - Generated configure script
 
 ### Documentation
-- `README` - Project description and usage instructions
-- `INSTALL` - Installation instructions
+- `README.rst` - Project description and usage instructions
+- `docs/` - MkDocs documentation sources
 - `COPYING` - License information
 
 ### Build Artifacts

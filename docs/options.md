@@ -17,7 +17,7 @@ G15Stats supports various command-line options to customize its behavior.
 | `-df` | Disable monitoring CPUs frequencies |
 | `-ir` | Enable the bottom info bar content rotate cycle over all available sensors |
 | `-vc` | The CPU cores will be calculated every time (for systems with CPU hotplug) |
-| `-gt <id>` | Show temperature `<id>` in place of the maximal one on the summary screen. The id should point to sysfs path `/sys/class/hwmon/hwmon../device/temp<id>_input` |
+| `-gt <id>` | Show temperature `<id>` in place of the maximal one on the summary screen. The id should point to sysfs path `/sys/class/hwmon/hwmon<id>/device/temp<id>_input` |
 
 ## Detailed Options
 
@@ -126,7 +126,7 @@ g15stats -gt 1
 
 The ID should point to the sysfs path:
 ```
-/sys/class/hwmon/hwmon../device/temp<id>_input
+/sys/class/hwmon/hwmon<id>/device/temp<id>_input
 ```
 
 ## Help
