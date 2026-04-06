@@ -10,7 +10,7 @@ bin_PROGRAMS = g15stats
 
 # Test suite
 TESTS = tests/test_yaml_config.sh tests/test_output_file_mode.sh tests/test_config_variables.sh
-EXTRA_DIST = $(TESTS) tests/convert_g15_frames.py tests/convert_g15_frames.c
+EXTRA_DIST = $(TESTS) tests/convert_g15_frames.py tests/convert_g15_frames.c tests/gen_screen_mode_dumps.sh tests/update_screens_docs.sh
 
 # Header file used during build, but not installed
 noinst_HEADERS = g15stats.h
@@ -61,3 +61,6 @@ lint-clang-tidy: $(top_builddir)/.tmp
 		printf "clang-tidy not found - skipped\n" >"$(top_builddir)/.tmp/lint/clang-tidy.txt"; \
 		printf "clang-tidy not found, skipped\n"; \
 	fi
+
+screens-docs:
+	@tests/update_screens_docs.sh

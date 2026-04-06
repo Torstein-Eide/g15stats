@@ -191,6 +191,19 @@ static int get_forced_screen(void) {
     return -1;
 }
 
+static int get_forced_mode(void) {
+    const char *env_mode = getenv("G15STATS_FORCE_MODE");
+    int parsed_mode = -1;
+
+    if (parse_int_value(env_mode, &parsed_mode)
+            && parsed_mode >= 0
+            && parsed_mode <= MAX_MODE) {
+        return parsed_mode;
+    }
+
+    return -1;
+}
+
 static const char *screen_name(int screen_id) {
     switch (screen_id) {
         case SCREEN_SUMMARY: return "SUMMARY";
@@ -2854,6 +2867,7 @@ int main(int argc, const char *argv[]){
     static char tmpstr[MAX_LINES];
     int unicore = 0;
     int forced_screen = -1;
+    int forced_mode = -1;
     
     load_config_file(&go_daemon,
                      &unicore,
@@ -3027,6 +3041,7 @@ int main(int argc, const char *argv[]){
       pthread_create(&net_thread,NULL,(void*)network_watch,&interface);
 
     forced_screen = get_forced_screen();
+    forced_mode = get_forced_mode();
 
     for (i=0;i<MAX_SENSOR;i++) {
         sensor_lost_fan[i] = 1;
@@ -3045,6 +3060,9 @@ int main(int argc, const char *argv[]){
     while(1) {
         if (forced_screen >= SCREEN_SUMMARY) {
             cycle = forced_screen;
+        }
+        if (forced_mode >= 0) {
+            mode[cycle] = forced_mode;
         }
 
         if (cycle != SCREEN_CPU2) {
