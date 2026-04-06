@@ -1,0 +1,81 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            autoconf \
+            automake \
+            libtool \
+            pkg-config \
+            libgtop2-dev \
+            libg15daemon-client-dev \
+            libg15render-dev \
+            libyaml-dev
+
+      - name: Configure
+        run: ./configure
+
+      - name: Build
+        run: make -j"$(nproc)"
+
+      - name: Test
+        run: make check
+
+  deb-package:
+    name: Build Debian package
+    runs-on: ubuntu-latest
+    needs: build-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            autoconf \
+            automake \
+            libtool \
+            pkg-config \
+            dpkg-dev \
+            debhelper \
+            lintian \
+            devscripts \
+            libgtop2-dev \
+            libg15daemon-client-dev \
+            libg15render-dev \
+            libyaml-dev
+
+      - name: Build package
+        run: dpkg-buildpackage -us -uc -b
+
+      - name: Lint package
+        run: lintian --display-info --display-experimental ../g15stats_*_amd64.deb
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-packages
+          path: |
+            ../g15stats_*_amd64.deb
+            ../g15stats_*_amd64.ddeb
+            ../g15stats_*_amd64.buildinfo
+            ../g15stats_*_amd64.changes

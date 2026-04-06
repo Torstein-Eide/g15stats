@@ -35,6 +35,10 @@ CMakeUserPresets.json
 *.dll     # Dynamic libraries (Windows)
 *.obj     # Object files (Windows)
 .*
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
+!.github/workflows/*.yaml
 
 # Optional: Ignore the entire build directory if all build outputs are placed there
 # out/
