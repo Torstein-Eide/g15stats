@@ -1,3 +1,0 @@
-misc:Depends=init-system-helpers (>= 1.52)
-shlibs:Depends=libc6 (>= 2.38), libg15daemon-client1t64 (>= 1.9.5.3), libg15render1, libgtop-2.0-11 (>= 2.22.3), libyaml-0-2
-misc:Pre-Depends=
