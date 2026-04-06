@@ -46,6 +46,11 @@ if grep -q "Warning: invalid YAML" "$valid_output"; then
     exit 1
 fi
 
+if ! grep -q "Config file: $valid_cfg" "$valid_output"; then
+    echo "help output did not show expected config file path"
+    exit 1
+fi
+
 if ! grep -q "Warning: invalid YAML" "$invalid_output"; then
     echo "invalid YAML did not produce parser warning"
     exit 1

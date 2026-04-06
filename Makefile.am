@@ -1,8 +1,6 @@
-# Extra C compiler flags:
-# -Wall enables common warnings
-# @CFLAGS@ is substituted by configure
-# Include both the top build directory and top source directory
-AM_CFLAGS = -Wall @CFLAGS@ -I$(top_builddir) -I$(top_srcdir)
+# Extra compiler flags and include paths
+AM_CFLAGS = -Wall
+AM_CPPFLAGS = -I$(top_builddir) -I$(top_srcdir) $(GTOP_CFLAGS) $(YAML_CFLAGS)
 
 # Legacy Automake setting for automatic handling of meta sources
 METASOURCES = AUTO
@@ -22,7 +20,7 @@ docdir = @docdir@
 doc_DATA = README.rst ChangeLog AUTHORS NEWS COPYING
 
 # Libraries to link against
-LIBS = -lg15daemon_client -lg15render -lyaml -lpthread -lm -lrt
+g15stats_LDADD = $(GTOP_LIBS) $(YAML_LIBS) -lg15daemon_client -lg15render -lpthread -lm -lrt
 
 # Linker flags for g15stats
 # Note: -avoid-version is usually used for libraries, not programs

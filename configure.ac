@@ -25,8 +25,6 @@ AC_ARG_WITH(gtop-includes,AS_HELP_STRING([--with-gtop-includes],[Path to libgtop
 AC_ARG_WITH(gtop-libs,AS_HELP_STRING([--with-gtop-libs],[Path to libgtop libraries (Autodetect)]),GTOP_LIBS="-L$withval -lgtop-2.0 -lglib-2.0",)
 
 CPPFLAGS="$CPPFLAGS $GTOP_CFLAGS $YAML_CFLAGS"
-CFLAGS="$CPPFLAGS $GTOP_CFLAGS $YAML_CFLAGS"
-LDFLAGS="$LDFLAGS $GTOP_LIBS $YAML_LIBS"
 
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT

@@ -139,6 +139,23 @@ static int parse_bool_value(const char *value) {
             strcasecmp(value, "on") == 0);
 }
 
+static int parse_int_value(const char *value, int *parsed) {
+    char *endptr;
+    long parsed_long;
+
+    if (value == NULL || parsed == NULL) {
+        return 0;
+    }
+
+    parsed_long = strtol(value, &endptr, 10);
+    if (endptr == value || *endptr != '\0') {
+        return 0;
+    }
+
+    *parsed = (int)parsed_long;
+    return 1;
+}
+
 static void apply_config_value(const char *key,
                                const char *value,
                                int *go_daemon,
@@ -168,20 +185,19 @@ static void apply_config_value(const char *key,
             *nic_enabled = 1;
         }
     } else if (strcmp(key, "refresh") == 0) {
-        parsed = atoi(value);
-        if (parsed >= 1 && parsed <= MAX_INTERVAL) {
+        if (parse_int_value(value, &parsed) && parsed >= 1 && parsed <= MAX_INTERVAL) {
             wait_seconds = parsed;
         }
     } else if (strcmp(key, "temperature") == 0) {
-        parsed = atoi(value);
-        if (parsed >= 0 && parsed < MAX_SENSOR) {
+        if (parse_int_value(value, &parsed) && parsed >= 0 && parsed < MAX_SENSOR) {
             sensor_temp_id = parsed;
         }
     } else if (strcmp(key, "global_temp") == 0) {
-        sensor_temp_main = atoi(value);
+        if (parse_int_value(value, &parsed) && parsed >= 0 && parsed < MAX_SENSOR) {
+            sensor_temp_main = parsed;
+        }
     } else if (strcmp(key, "fan") == 0) {
-        parsed = atoi(value);
-        if (parsed >= 0 && parsed < MAX_SENSOR) {
+        if (parse_int_value(value, &parsed) && parsed >= 0 && parsed < MAX_SENSOR) {
             sensor_fan_id = parsed;
         }
     }
@@ -198,6 +214,7 @@ static void load_config_file(int *go_daemon,
     int parse_error = 0;
     int expecting_key = 1;
     int mapping_depth = 0;
+    int sequence_depth = 0;
     char current_key[128] = {0};
 
     const char *config_file = get_config_file_path();
@@ -227,7 +244,29 @@ static void load_config_file(int *go_daemon,
 
         switch (event.type) {
             case YAML_MAPPING_START_EVENT:
+                if (mapping_depth == 1 && expecting_key == 0 && sequence_depth == 0) {
+                    fprintf(stderr,
+                            "Warning: unsupported nested map value for key '%s' in %s\n",
+                            current_key,
+                            config_file);
+                    expecting_key = 1;
+                }
                 mapping_depth++;
+                break;
+            case YAML_SEQUENCE_START_EVENT:
+                if (mapping_depth == 1 && expecting_key == 0) {
+                    fprintf(stderr,
+                            "Warning: unsupported sequence value for key '%s' in %s\n",
+                            current_key,
+                            config_file);
+                    expecting_key = 1;
+                }
+                sequence_depth++;
+                break;
+            case YAML_SEQUENCE_END_EVENT:
+                if (sequence_depth > 0) {
+                    sequence_depth--;
+                }
                 break;
             case YAML_MAPPING_END_EVENT:
                 if (mapping_depth > 0) {
@@ -235,7 +274,7 @@ static void load_config_file(int *go_daemon,
                 }
                 break;
             case YAML_SCALAR_EVENT:
-                if (mapping_depth == 1) {
+                if (mapping_depth == 1 && sequence_depth == 0) {
                     size_t value_len = event.data.scalar.length;
                     if (expecting_key) {
                         if (value_len >= sizeof(current_key)) {
@@ -1916,7 +1955,8 @@ int main(int argc, char *argv[]){
           if(argv[i+1]!=NULL) {
             have_nic=1;
             i++;
-            strncpy((char*)interface,argv[i],128);
+            strncpy((char*)interface,argv[i],127);
+            interface[127] = '\0';
           }
         }
         if(0==strncmp(argv[i],"-t",2)||0==strncmp(argv[i],"--temperature",13)) {
