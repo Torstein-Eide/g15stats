@@ -87,6 +87,11 @@ _Bool show_screen_overlay = 1;
 
 int overlay_screen = -1;
 int overlay_ticks = 0;
+int cpu2_min_bar_width = 3;
+int cpu2_bar_height = 3;
+int cpu2_debug_logged = 0;
+int mode_overlay_ticks = 0;
+char mode_overlay_text[96] = {0};
 
 _Bool sensor_type_temp[MAX_SENSOR];
 _Bool sensor_type_fan[MAX_SENSOR];
@@ -190,6 +195,7 @@ static const char *screen_name(int screen_id) {
     switch (screen_id) {
         case SCREEN_SUMMARY: return "SUMMARY";
         case SCREEN_CPU: return "CPU LOAD";
+        case SCREEN_CPU2: return "CPU LOAD2";
         case SCREEN_FREQ: return "CPU FREQ";
         case SCREEN_FREQ_AGG: return "CPU FREQ AGG";
         case SCREEN_MEM: return "MEMORY";
@@ -235,6 +241,34 @@ static int overlay_screen_number(int screen_id) {
     return number;
 }
 
+static const char *mode_description(int screen_id, int mode_value) {
+    switch (screen_id) {
+        case SCREEN_NET:
+            return mode_value ? "NET: absolute scale" : "NET: autoscale";
+        case SCREEN_CPU2:
+            return mode_value ? "CPU2: vertical bars" : "CPU2: horizontal bars";
+        case SCREEN_CPU:
+            return mode_value ? "CPU: detailed bars" : "CPU: simple bars";
+        case SCREEN_FREQ:
+            return mode_value ? "FREQ: freq + load" : "FREQ: load only";
+        default:
+            return mode_value ? "Mode: 1" : "Mode: 0";
+    }
+}
+
+static const char *submode_description(int submode_value) {
+    return submode_value ? "Submode: fixed info" : "Submode: rotate info";
+}
+
+static void queue_mode_overlay(const char *text) {
+    if (text == NULL || text[0] == '\0') {
+        return;
+    }
+
+    snprintf(mode_overlay_text, sizeof(mode_overlay_text), "%s", text);
+    mode_overlay_ticks = 2;
+}
+
 static void apply_config_value(const char *key,
                                const char *value,
                                int *go_daemon,
@@ -263,6 +297,18 @@ static void apply_config_value(const char *key,
         debug_enabled = parse_bool_value(value);
     } else if (strcmp(key, "screen_overlay") == 0) {
         show_screen_overlay = parse_bool_value(value);
+    } else if (strcmp(key, "cpu2_min_bar_width") == 0) {
+        if (parse_int_value(value, &parsed)
+                && parsed >= 1
+                && parsed <= (BAR_END - BAR_START + 1)) {
+            cpu2_min_bar_width = parsed;
+        }
+    } else if (strcmp(key, "cpu2_bar_height") == 0) {
+        if (parse_int_value(value, &parsed)
+                && parsed >= 1
+                && parsed <= (BAR_BOTTOM + 1)) {
+            cpu2_bar_height = parsed;
+        }
     } else if (strcmp(key, "interface") == 0) {
         if (strlen(value) > 0) {
             size_t iface_len = strlen(value);
@@ -1389,6 +1435,415 @@ void draw_freq_screen_aggregate(g15canvas *canvas, char *tmpstr) {
     print_vert_label(canvas, "FREQ");
 }
 
+static int scaled_bar_size(int value, int total, int max_size) {
+    if (max_size <= 0) {
+        return 0;
+    }
+    if (value <= 0 || total <= 0) {
+        return 0;
+    }
+
+    {
+        int scaled = (max_size * value) / total;
+        if (scaled < 1) {
+            scaled = 1;
+        }
+        if (scaled > max_size) {
+            scaled = max_size;
+        }
+        return scaled;
+    }
+}
+
+void draw_cpu_screen_load2(g15canvas *canvas, glibtop_cpu cpu, char *tmpstr) {
+    static int last_total[GLIBTOP_NCPU];
+    static int last_user[GLIBTOP_NCPU];
+    static int last_nice[GLIBTOP_NCPU];
+    static int last_sys[GLIBTOP_NCPU];
+    static int last_idle[GLIBTOP_NCPU];
+    int d_total[GLIBTOP_NCPU];
+    int d_user[GLIBTOP_NCPU];
+    int d_nice[GLIBTOP_NCPU];
+    int d_sys[GLIBTOP_NCPU];
+    int d_idle[GLIBTOP_NCPU];
+    int core;
+    int drawable_height = BAR_BOTTOM + 1;
+    int line_count = drawable_height / cpu2_bar_height;
+    int grouped_lines;
+    int bar_height;
+    int y_offset;
+    int line;
+    int total_user = 0;
+    int total_sys = 0;
+    int total_nice = 0;
+    int total_total = 0;
+
+    g15r_clearScreen(canvas, G15_COLOR_WHITE);
+
+    if (ncpu <= 0) {
+        return;
+    }
+
+    if (line_count < 1) {
+        line_count = 1;
+    }
+
+    if (ncpu > line_count) {
+        grouped_lines = ncpu / 2;
+        if (grouped_lines < 1) {
+            grouped_lines = 1;
+        }
+        if (grouped_lines < line_count) {
+            line_count = grouped_lines;
+        }
+    }
+
+    if (line_count > ncpu) {
+        line_count = ncpu;
+    }
+
+    bar_height = drawable_height / line_count;
+    if (bar_height < 1) {
+        bar_height = 1;
+    }
+    y_offset = (drawable_height - (bar_height * line_count)) / 2;
+
+    if (debug_enabled && !cpu2_debug_logged) {
+        fprintf(stderr,
+                "[g15stats] cpu2 layout: cores=%d bars=%d bar_h=%d\n",
+                ncpu,
+                line_count,
+                bar_height);
+    }
+
+    for (core = 0; core < ncpu; core++) {
+        int total = ((unsigned long) cpu.xcpu_total[core]) ? ((double) cpu.xcpu_total[core]) : 1.0;
+        int user = ((unsigned long) cpu.xcpu_user[core]) ? ((double) cpu.xcpu_user[core]) : 1.0;
+        int nice = ((unsigned long) cpu.xcpu_nice[core]) ? ((double) cpu.xcpu_nice[core]) : 1.0;
+        int sys = ((unsigned long) cpu.xcpu_sys[core]) ? ((double) cpu.xcpu_sys[core]) : 1.0;
+        int idle = ((unsigned long) cpu.xcpu_idle[core]) ? ((double) cpu.xcpu_idle[core]) : 1.0;
+
+        if ((total - last_total[core]) > 0) {
+            d_total[core] = total - last_total[core];
+            d_user[core] = user - last_user[core];
+            d_nice[core] = nice - last_nice[core];
+            d_sys[core] = sys - last_sys[core];
+            d_idle[core] = idle - last_idle[core];
+            if (d_user[core] < 0) d_user[core] = 0;
+            if (d_nice[core] < 0) d_nice[core] = 0;
+            if (d_sys[core] < 0) d_sys[core] = 0;
+            if (d_idle[core] < 0) d_idle[core] = 0;
+        } else {
+            d_total[core] = 100;
+            d_user[core] = 0;
+            d_nice[core] = 0;
+            d_sys[core] = 0;
+            d_idle[core] = 100;
+        }
+
+        last_total[core] = total;
+        last_user[core] = user;
+        last_nice[core] = nice;
+        last_sys[core] = sys;
+        last_idle[core] = idle;
+
+        total_total += d_total[core];
+        total_user += d_user[core];
+        total_sys += d_sys[core];
+        total_nice += d_nice[core];
+    }
+
+    if (total_total <= 0) {
+        total_total = 1;
+    }
+
+    snprintf(tmpstr, MAX_LINES, "Usr %4.1f%%", ((float) total_user * 100.0f) / (float) total_total);
+    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 2);
+    snprintf(tmpstr, MAX_LINES, "Sys %4.1f%%", ((float) total_sys * 100.0f) / (float) total_total);
+    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 14);
+    snprintf(tmpstr, MAX_LINES, "Nce %4.1f%%", ((float) total_nice * 100.0f) / (float) total_total);
+    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 26);
+
+    for (line = 0; line < line_count; line++) {
+        int start_core = (line * ncpu) / line_count;
+        int end_core = ((line + 1) * ncpu) / line_count;
+        int y1 = y_offset + (line * bar_height);
+        int y2 = y1 + bar_height - 1;
+        int bar_h = bar_height;
+        int sum_total = 0;
+        int sum_active = 0;
+        int sum_sys = 0;
+        int sum_nice = 0;
+        int bar_w;
+        int x1;
+        int x2;
+
+        if (end_core <= start_core) {
+            end_core = start_core + 1;
+            if (end_core > ncpu) {
+                end_core = ncpu;
+            }
+        }
+
+        for (core = start_core; core < end_core; core++) {
+            int total = d_total[core];
+            int nice = d_nice[core];
+            int sys = d_sys[core];
+            int idle = d_idle[core];
+            int active;
+
+            if (total <= 0) {
+                total = 100;
+                idle = 100;
+                nice = 0;
+                sys = 0;
+            }
+
+            active = total - idle;
+            if (active < 0) {
+                active = 0;
+            }
+
+            sum_total += total;
+            sum_active += active;
+            sum_sys += sys;
+            sum_nice += nice;
+        }
+
+        if (sum_total <= 0 || sum_active <= 0) {
+            continue;
+        }
+
+        bar_w = scaled_bar_size(sum_active,
+                                sum_total,
+                                (BAR_END - BAR_START + 1));
+        if (bar_w > 0 && bar_w < cpu2_min_bar_width) {
+            bar_w = cpu2_min_bar_width;
+        }
+        if (bar_w > (BAR_END - BAR_START + 1)) {
+            bar_w = (BAR_END - BAR_START + 1);
+        }
+
+        if (debug_enabled && !cpu2_debug_logged) {
+            fprintf(stderr,
+                    "[g15stats] cpu2 bar: line=%d cores=%d-%d width=%dpx height=%dpx load=%d/%d\n",
+                    line,
+                    start_core,
+                    end_core - 1,
+                    bar_w,
+                    bar_h,
+                    sum_active,
+                    sum_total);
+        }
+
+        x1 = BAR_START;
+        x2 = BAR_START + bar_w - 1;
+        g15r_pixelBox(canvas, x1, y1, x2, y2, G15_COLOR_BLACK, 1, 1);
+
+        if (bar_h >= 2) {
+            int nice_w = (bar_w * sum_nice) / sum_active;
+            int nx1;
+            int x;
+
+            if (nice_w > bar_w) {
+                nice_w = bar_w;
+            }
+            if (nice_w > 0) {
+                nx1 = x2 - nice_w + 1;
+                for (x = nx1; x <= x2; x++) {
+                    if ((x & 1) == 0) {
+                        g15r_setPixel(canvas, x, y2, G15_COLOR_WHITE);
+                    }
+                }
+            }
+        }
+
+        if (bar_h >= 3) {
+            int sys_w = (bar_w * sum_sys) / sum_active;
+            int sx1;
+            int x;
+
+            if (sys_w > bar_w) {
+                sys_w = bar_w;
+            }
+            if (sys_w > 0) {
+                sx1 = x2 - sys_w + 1;
+                for (x = sx1; x <= x2; x++) {
+                    if ((x & 1) != 0) {
+                        g15r_setPixel(canvas, x, y2 - 1, G15_COLOR_WHITE);
+                    }
+                    if ((x & 1) == 0) {
+                        g15r_setPixel(canvas, x, y2 - 2, G15_COLOR_WHITE);
+                    }
+                }
+            }
+        }
+    }
+
+    if (debug_enabled && !cpu2_debug_logged) {
+        cpu2_debug_logged = 1;
+    }
+}
+
+void draw_cpu_screen_vertical(g15canvas *canvas, glibtop_cpu cpu, char *tmpstr) {
+    static int last_total[GLIBTOP_NCPU];
+    static int last_nice[GLIBTOP_NCPU];
+    static int last_sys[GLIBTOP_NCPU];
+    static int last_idle[GLIBTOP_NCPU];
+    int d_total[GLIBTOP_NCPU];
+    int d_nice[GLIBTOP_NCPU];
+    int d_sys[GLIBTOP_NCPU];
+    int d_idle[GLIBTOP_NCPU];
+    int core;
+    int groups;
+    int gap = 1;
+    int total_user = 0;
+    int total_sys = 0;
+    int total_nice = 0;
+    int total_total = 0;
+    int usable_w = BAR_END - BAR_START + 1;
+    int max_groups = usable_w / 3;
+
+    g15r_clearScreen(canvas, G15_COLOR_WHITE);
+
+    if (ncpu <= 0) {
+        return;
+    }
+
+    for (core = 0; core < ncpu; core++) {
+        int total = ((unsigned long) cpu.xcpu_total[core]) ? ((double) cpu.xcpu_total[core]) : 1.0;
+        int nice = ((unsigned long) cpu.xcpu_nice[core]) ? ((double) cpu.xcpu_nice[core]) : 1.0;
+        int sys = ((unsigned long) cpu.xcpu_sys[core]) ? ((double) cpu.xcpu_sys[core]) : 1.0;
+        int idle = ((unsigned long) cpu.xcpu_idle[core]) ? ((double) cpu.xcpu_idle[core]) : 1.0;
+
+        if ((total - last_total[core]) > 0) {
+            d_total[core] = total - last_total[core];
+            d_sys[core] = sys - last_sys[core];
+            d_nice[core] = nice - last_nice[core];
+            d_idle[core] = idle - last_idle[core];
+            if (d_sys[core] < 0) d_sys[core] = 0;
+            if (d_nice[core] < 0) d_nice[core] = 0;
+            if (d_idle[core] < 0) d_idle[core] = 0;
+        } else {
+            d_total[core] = 100;
+            d_sys[core] = 0;
+            d_nice[core] = 0;
+            d_idle[core] = 100;
+        }
+
+        last_total[core] = total;
+        last_nice[core] = nice;
+        last_sys[core] = sys;
+        last_idle[core] = idle;
+
+        total_total += d_total[core];
+        total_user += (d_total[core] - d_idle[core] - d_sys[core] - d_nice[core]);
+        total_sys += d_sys[core];
+        total_nice += d_nice[core];
+    }
+
+    if (total_total <= 0) {
+        total_total = 1;
+    }
+
+    snprintf(tmpstr, MAX_LINES, "Usr %4.1f%%", ((float) total_user * 100.0f) / (float) total_total);
+    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 2);
+    snprintf(tmpstr, MAX_LINES, "Sys %4.1f%%", ((float) total_sys * 100.0f) / (float) total_total);
+    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 14);
+    snprintf(tmpstr, MAX_LINES, "Nce %4.1f%%", ((float) total_nice * 100.0f) / (float) total_total);
+    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 26);
+
+    if (max_groups < 1) {
+        max_groups = 1;
+    }
+    groups = ncpu;
+    if (groups > max_groups) {
+        groups = max_groups;
+    }
+
+    for (core = 0; core < groups; core++) {
+        int start_core = (core * ncpu) / groups;
+        int end_core = ((core + 1) * ncpu) / groups;
+        int x1;
+        int x2;
+        int y2 = BAR_BOTTOM;
+        int bar_h;
+        int sum_total = 0;
+        int sum_active = 0;
+        int sum_sys = 0;
+        int sum_nice = 0;
+        int c;
+
+        if (end_core <= start_core) {
+            end_core = start_core + 1;
+            if (end_core > ncpu) {
+                end_core = ncpu;
+            }
+        }
+
+        x1 = BAR_START + (core * usable_w) / groups;
+        x2 = BAR_START + (((core + 1) * usable_w) / groups) - 1 - gap;
+        if (x2 < x1) {
+            x2 = x1;
+        }
+
+        for (c = start_core; c < end_core; c++) {
+            int active = d_total[c] - d_idle[c];
+            if (active < 0) {
+                active = 0;
+            }
+            sum_total += d_total[c];
+            sum_active += active;
+            sum_sys += d_sys[c];
+            sum_nice += d_nice[c];
+        }
+
+        if (sum_total <= 0 || sum_active <= 0) {
+            continue;
+        }
+
+        bar_h = scaled_bar_size(sum_active,
+                                sum_total,
+                                (BAR_BOTTOM + 1));
+
+        g15r_pixelBox(canvas, x1, y2 - bar_h + 1, x2, y2, G15_COLOR_BLACK, 1, 1);
+
+        if ((x2 - x1 + 1) >= 2) {
+            int nice_h = (bar_h * sum_nice) / sum_active;
+            int y;
+            if (nice_h > bar_h) {
+                nice_h = bar_h;
+            }
+            for (y = y2; y > y2 - nice_h; y--) {
+                int x;
+                for (x = x1; x <= x2; x++) {
+                    if ((x + y) & 1) {
+                        g15r_setPixel(canvas, x, y, G15_COLOR_WHITE);
+                    }
+                }
+            }
+        }
+        if ((x2 - x1 + 1) >= 3) {
+            int sys_h = (bar_h * sum_sys) / sum_active;
+            int y;
+            if (sys_h > bar_h) {
+                sys_h = bar_h;
+            }
+            for (y = y2 - 1; y > y2 - 1 - sys_h; y--) {
+                if (y < 0) {
+                    break;
+                }
+                if ((x1 + 1) <= x2) {
+                    g15r_setPixel(canvas, x1 + 1, y, G15_COLOR_WHITE);
+                }
+                if ((x2 - 1) >= x1) {
+                    g15r_setPixel(canvas, x2 - 1, y, G15_COLOR_WHITE);
+                }
+            }
+        }
+    }
+}
+
 void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
     glibtop_cpu cpu;
     int core,ncpumax;
@@ -1418,6 +1873,13 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
             }
             draw_cpu_screen_unicore_logic(canvas, cpu, tmpstr, 0, 1, 0);
             break;
+        case SCREEN_CPU2:
+            if (mode[SCREEN_CPU2]) {
+                draw_cpu_screen_vertical(canvas, cpu, tmpstr);
+            } else {
+                draw_cpu_screen_load2(canvas, cpu, tmpstr);
+            }
+            return;
         case SCREEN_FREQ   :
             draw_cpu_screen_unicore_logic(canvas, cpu, tmpstr, 0, 0, 0);
             break;
@@ -1446,6 +1908,12 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
             height = 36;
             break;
         case    SCREEN_CPU :
+            if(ncpu > 4){
+                spacer = 0;
+            }
+            height = 12;
+            break;
+        case    SCREEN_CPU2 :
             if(ncpu > 4){
                 spacer = 0;
             }
@@ -1564,7 +2032,31 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
                 }
                 break;
             case SCREEN_CPU:
-                if (mode[SCREEN_CPU]) {
+                if (mode[cycle]) {
+                    divider = 9 / ncpu;
+                    sub_val = divider * core;
+                    g15r_drawBar(canvas, BAR_START, sub_val, BAR_END, divider + sub_val, G15_COLOR_BLACK, b_user[core] + 1, b_total[core], 4);
+                    g15r_drawBar(canvas, BAR_START, shift + sub_val, BAR_END, shift + divider + sub_val, G15_COLOR_BLACK, b_sys[core] + 1, b_total[core], 4);
+                    y1 = 0;
+                    y2 = shift2 + divider + sub_val;
+                    g15r_drawBar(canvas, BAR_START, shift2 + sub_val, BAR_END, y2, G15_COLOR_BLACK, b_nice[core] + 1, b_total[core], 4);
+
+                    divider = y2 / ncpu;
+                    drawBar_reversed(canvas, BAR_START, sub_val, BAR_END, y2, G15_COLOR_BLACK, b_idle[core] + 1, b_total[core], 5);
+                } else {
+                    current_value = b_total[core] - b_idle[core];
+                    drawBar_both(canvas, y1, y2, current_value, b_total[core], b_total[core] - current_value, b_total[core]);
+
+                    drawBar_both(canvas, shift + y1, shift + y2, b_sys[core] + 1, b_total[core], b_total[core] - b_sys[core], b_total[core]);
+
+                    y2 += shift2;
+                    drawBar_both(canvas, shift2 + y1, y2, b_nice[core] + 1, b_total[core], b_total[core] - b_nice[core], b_total[core]);
+
+                    y1 = 0;
+                }
+                break;
+            case SCREEN_CPU2:
+                if (mode[cycle]) {
                     divider = 9 / ncpu;
                     sub_val = divider * core;
                     g15r_drawBar(canvas, BAR_START, sub_val, BAR_END, divider + sub_val, G15_COLOR_BLACK, b_user[core] + 1, b_total[core], 4);
@@ -1943,6 +2435,9 @@ void calc_info_cycle(void) {
             case SCREEN_CPU:
                 info_cycle = SCREEN_CPU;
                 break;
+            case SCREEN_CPU2:
+                info_cycle = SCREEN_CPU2;
+                break;
             case SCREEN_FREQ:
             case SCREEN_FREQ_AGG:
                 if (have_freq) {
@@ -2006,6 +2501,7 @@ void print_info_label(g15canvas *canvas, char *tmpstr) {
             print_time_info(canvas, tmpstr);
             break;
         case SCREEN_CPU :
+        case SCREEN_CPU2:
             print_sys_load_info(canvas, tmpstr);
             break;
         case SCREEN_FREQ   :
@@ -2063,9 +2559,36 @@ void draw_screen_overlay(g15canvas *canvas, char *tmpstr) {
     overlay_ticks--;
 }
 
+void draw_mode_overlay(g15canvas *canvas, char *tmpstr) {
+    int overlay_left = 56;
+    int y1 = 0;
+    int y2 = 12;
+    int x;
+
+    if (mode_overlay_ticks <= 0 || mode_overlay_text[0] == '\0') {
+        return;
+    }
+
+    snprintf(tmpstr, MAX_LINES, "%s", mode_overlay_text);
+    x = G15_LCD_WIDTH - ((int) strlen(tmpstr) * 6) - 1;
+    if (x < overlay_left) {
+        x = overlay_left;
+    }
+
+    g15r_pixelBox(canvas, overlay_left, y1, G15_LCD_WIDTH - 1, y2, G15_COLOR_WHITE, 1, 1);
+    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, x, 1);
+
+    mode_overlay_ticks--;
+    if (mode_overlay_ticks <= 0) {
+        mode_overlay_text[0] = '\0';
+    }
+}
+
 void keyboard_watch(void) {
     unsigned int keystate;
     int change   = 0;
+    int mode_changed = 0;
+    int submode_changed = 0;
 
     while(1) {
         int recv_len;
@@ -2190,6 +2713,15 @@ void keyboard_watch(void) {
                                 screen_name(cycle),
                                 mode[cycle]);
                     }
+                    mode_changed = 1;
+                    break;
+                case CHANGE_SUBMODE:
+                    if (debug_enabled) {
+                        fprintf(stderr,
+                                "[g15stats] submode changed: submode=%d\n",
+                                submode);
+                    }
+                    submode_changed = 1;
                     break;
             }
             if (cycle > MAX_SCREENS) {
@@ -2203,6 +2735,15 @@ void keyboard_watch(void) {
 
             if (submode > MAX_SUB_MODE) {
                 submode = 0;
+            }
+
+            if (mode_changed) {
+                queue_mode_overlay(mode_description(cycle, mode[cycle]));
+                mode_changed = 0;
+            }
+            if (submode_changed) {
+                queue_mode_overlay(submode_description(submode));
+                submode_changed = 0;
             }
 
             if ((change == CHANGE_UP || change == CHANGE_DOWN) && show_screen_overlay) {
@@ -2352,6 +2893,18 @@ int main(int argc, const char *argv[]){
         if(0==strncmp(argv[i],"-D",2)||0==strncmp(argv[i],"--debug",7)) {
             debug_enabled = 1;
         }
+        if(0==strncmp(argv[i],"--cpu2-bar-height",17)) {
+          if((i + 1) < argc) {
+            i++;
+            cpu2_bar_height = atoi(argv[i]);
+            if (cpu2_bar_height < 1) {
+                cpu2_bar_height = 1;
+            }
+            if (cpu2_bar_height > (BAR_BOTTOM + 1)) {
+                cpu2_bar_height = BAR_BOTTOM + 1;
+            }
+          }
+        }
         if(0==strncmp(argv[i],"--no-screen-overlay",19)) {
             show_screen_overlay = 0;
             overlay_ticks = 0;
@@ -2377,6 +2930,7 @@ int main(int argc, const char *argv[]){
             printf("--info-rotate (-ir) enable the bottom info bar content rotate.\n");
             printf("--variable-cpu (-vc) the cpu cores will be calculated every time (for systems with the cpu hotplug).\n");
             printf("--debug (-D) enable debug logs to stderr.\n");
+            printf("--cpu2-bar-height [pixels] set target CPU LOAD2 bar height (1-%d).\n", BAR_BOTTOM + 1);
             printf("--no-screen-overlay disable one-refresh top-right overlay after L2/L3 screen change.\n");
             printf("--refresh [seconds] (-r) set the refresh interval to [seconds] The seconds must be between 1 and 300. ie -r 15\n");
             printf("--disable-freq (-df) disable monitoring CPUs frequencies.\n\n");
@@ -2493,10 +3047,15 @@ int main(int argc, const char *argv[]){
             cycle = forced_screen;
         }
 
+        if (cycle != SCREEN_CPU2) {
+            cpu2_debug_logged = 0;
+        }
+
         calc_info_cycle();
         switch (cycle) {
             case SCREEN_SUMMARY:
             case SCREEN_CPU:
+            case SCREEN_CPU2:
             case SCREEN_FREQ:
             case SCREEN_FREQ_AGG:
                 draw_cpu_screen_multicore(canvas, tmpstr, unicore);
@@ -2611,6 +3170,7 @@ int main(int argc, const char *argv[]){
         cycle_old   = cycle;
         print_info_label(canvas, tmpstr);
         draw_screen_overlay(canvas, tmpstr);
+        draw_mode_overlay(canvas, tmpstr);
 
         canvas->mode_xor = 0;
 

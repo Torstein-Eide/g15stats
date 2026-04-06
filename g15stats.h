@@ -31,17 +31,18 @@
 
 #define SCREEN_SUMMARY  0
 #define SCREEN_CPU      1
-#define SCREEN_FREQ     2
-#define SCREEN_FREQ_AGG 3
-#define SCREEN_MEM      4
-#define SCREEN_SWAP     5
-#define SCREEN_NET      6
-#define SCREEN_BAT      7
-#define SCREEN_TEMP     8
-#define SCREEN_FAN      9
-#define SCREEN_NET2     10
+#define SCREEN_CPU2     2
+#define SCREEN_FREQ     3
+#define SCREEN_FREQ_AGG 4
+#define SCREEN_MEM      5
+#define SCREEN_SWAP     6
+#define SCREEN_NET      7
+#define SCREEN_BAT      8
+#define SCREEN_TEMP     9
+#define SCREEN_FAN      10
+#define SCREEN_NET2     11
 
-#define	MAX_SCREENS	9
+#define	MAX_SCREENS	10
 
 typedef struct g15_stats_bat_info
 {	
