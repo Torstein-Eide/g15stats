@@ -35,6 +35,7 @@ This is a simple stats client showing graphs for CPU, MEM & Swap usage, Network 
 #include <strings.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <dirent.h>
 #include <libg15.h>
 #include <ctype.h>
 #include <g15daemon_client.h>
@@ -231,6 +232,7 @@ static const char *screen_name(int screen_id) {
 static int screen_is_visible(int screen_id) {
     switch (screen_id) {
         case SCREEN_NET:
+        case SCREEN_NET2:
             return have_nic;
         case SCREEN_BAT:
             return have_bat;
@@ -241,6 +243,30 @@ static int screen_is_visible(int screen_id) {
         default:
             return 1;
     }
+}
+
+static int find_next_visible_screen(int current, int direction) {
+    int next = current;
+    int steps = 0;
+
+    if (direction == 0) {
+        return current;
+    }
+
+    do {
+        next += direction;
+        if (next > MAX_SCREENS) {
+            next = SCREEN_SUMMARY;
+        } else if (next < SCREEN_SUMMARY) {
+            next = MAX_SCREENS;
+        }
+        if (screen_is_visible(next)) {
+            return next;
+        }
+        steps++;
+    } while (steps <= MAX_SCREENS);
+
+    return current;
 }
 
 static int overlay_screen_number(int screen_id) {
@@ -2745,6 +2771,32 @@ void draw_g15_stats_info_screen(g15canvas *canvas, char *tmpstr, int all, int sc
             break;
         case SCREEN_FAN:
             count = get_sensors(probes, SCREEN_FAN, sensor_type_fan, sensor_lost_fan, sensor_fan_id);
+            if (count > 0) {
+                int j;
+                int nonzero_seen = 0;
+                for (j = 0; j < count; j++) {
+                    if (probes[j].cur > 0) {
+                        nonzero_seen = 1;
+                        break;
+                    }
+                }
+                if (!sensor_fan_forced && !nonzero_seen) {
+                    count = 0;
+                }
+            }
+
+            if (count <= 0) {
+                if (all) {
+                    g15r_clearScreen(canvas, G15_COLOR_WHITE);
+                    g15r_renderString(canvas, (unsigned char*)"FAN missing", 0, G15_TEXT_LARGE, 80 - (11 * 9) / 2, 6);
+                    g15r_renderString(canvas, (unsigned char*)"check sensor id", 0, G15_TEXT_MED, 80 - (15 * 6) / 2, 24);
+                }
+                if ((!all) || (info_cycle == SCREEN_FAN)) {
+                    snprintf(tmpstr, MAX_LINES, "Fan sensor missing");
+                    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80 - (strlen(tmpstr) * 4) / 2, INFO_ROW);
+                }
+                break;
+            }
             draw_g15_stats_info_screen_logic(canvas, tmpstr, all, screen_type, probes, 
                     count, fan_tot_max, sensor_lost_fan, sensor_fan_id, "RPM", "F-%d%5.f", "Fan%d %1.f ");
             break;
@@ -2934,11 +2986,11 @@ void keyboard_watch(void) {
         if(keystate & G15_KEY_L1) {
         }
         else if(keystate & G15_KEY_L2) {
-            cycle--;
+            cycle = find_next_visible_screen(cycle, -1);
             change = CHANGE_DOWN;
         }
         else if(keystate & G15_KEY_L3) {
-            cycle++;
+            cycle = find_next_visible_screen(cycle, 1);
             change = CHANGE_UP;
         }
         else if(keystate & G15_KEY_L4) {
@@ -2953,61 +3005,9 @@ void keyboard_watch(void) {
         if (change) {
             switch (change) {
                 case CHANGE_UP :
-                    if (cycle > MAX_SCREENS) {
-                        cycle = 0;
-                    }
-                    switch (cycle) {
-                        case SCREEN_NET:
-                            if (have_nic) {
-                                break;
-                            }
-                            cycle++;
-                        case SCREEN_BAT:
-                            if (have_bat) {
-                                break;
-                            }
-                            cycle++;
-                        case SCREEN_TEMP:
-                            if (have_temp) {
-                                break;
-                            }
-                            cycle++;
-                        case SCREEN_FAN:
-                            if (have_fan) {
-                                break;
-                            }
-                            cycle = 0;
-                            break;
-                    }
                     info_cycle_timer = cycle * PAUSE;
                     break;
                 case CHANGE_DOWN :
-                    if (cycle < 0) {
-                        cycle = MAX_SCREENS;
-                    }
-                    switch (cycle) {
-                        case SCREEN_FAN:
-                            if (have_fan) {
-                                break;
-                            }
-                            cycle--;
-                        case SCREEN_TEMP:
-                            if (have_temp) {
-                                break;
-                            }
-                            cycle--;
-                        case SCREEN_BAT:
-                            if (have_bat) {
-                                break;
-                            }
-                            cycle--;
-                        case SCREEN_NET:
-                            if (have_nic) {
-                                break;
-                            }
-                            cycle--;
-                            break;
-                    }
                     info_cycle_timer = cycle * PAUSE;
                     break;
                 case CHANGE_MODE :
@@ -3104,11 +3104,11 @@ void network_watch(void *iface) {
   glibtop_get_netload(&netload,interface);
   for(i=0;i<8;i++)
     mac+=netload.hwaddress[i];
-  if(!mac) {
-    printf("Interface %s does not appear to exist. Net screen will be disabled.\n",interface);
-    have_nic = 0;
-    return; // interface probably doesn't exist - no mac address
-    }
+  if(!mac && debug_enabled) {
+    fprintf(stderr,
+            "[g15stats] network interface %s has no MAC in netload; continuing with traffic counters\n",
+            interface);
+  }
 
     while (1) {
         int j;
@@ -3145,6 +3145,66 @@ void network_watch(void *iface) {
         sleep(1);
         glibtop_get_netload(&netload, interface);
     }
+}
+
+int auto_discover_nic(unsigned char *interface, size_t interface_size) {
+    DIR *dir;
+    struct dirent *entry;
+    glibtop_netload netload;
+    char fallback_name[128] = {0};
+    int have_fallback = 0;
+
+    if (interface == NULL || interface_size == 0) {
+        return 0;
+    }
+
+    dir = opendir("/sys/class/net");
+    if (dir == NULL) {
+        return 0;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        int i;
+        int mac = 0;
+
+        if (entry->d_name[0] == '.') {
+            continue;
+        }
+        if (strcmp(entry->d_name, "lo") == 0) {
+            continue;
+        }
+
+        if (!have_fallback) {
+            size_t n = strlen(entry->d_name);
+            if (n > (sizeof(fallback_name) - 1)) {
+                n = sizeof(fallback_name) - 1;
+            }
+            memcpy(fallback_name, entry->d_name, n);
+            fallback_name[n] = '\0';
+            have_fallback = 1;
+        }
+
+        glibtop_get_netload(&netload, entry->d_name);
+        for (i = 0; i < 8; i++) {
+            mac += netload.hwaddress[i];
+        }
+        if (!mac) {
+            continue;
+        }
+
+        snprintf((char *)interface, interface_size, "%s", entry->d_name);
+        closedir(dir);
+        return 1;
+    }
+
+    if (have_fallback) {
+        snprintf((char *)interface, interface_size, "%s", fallback_name);
+        closedir(dir);
+        return 1;
+    }
+
+    closedir(dir);
+    return 0;
 }
 
 /* wait for a max of <seconds> seconds.. if condition &wake_now is received leave immediately */
@@ -3359,6 +3419,16 @@ int main(int argc, const char *argv[]){
     }
 
     glibtop_init();
+
+    if (!have_nic) {
+        if (auto_discover_nic(interface, sizeof(interface))) {
+            have_nic = 1;
+            if (debug_enabled) {
+                fprintf(stderr, "[g15stats] auto-selected network interface: %s\n", interface);
+            }
+        }
+    }
+
     if (use_screen_output == 1) {
         pthread_create(&keys_thread,NULL,(void*)keyboard_watch,NULL);
     }
@@ -3413,6 +3483,7 @@ int main(int argc, const char *argv[]){
                 draw_swap_screen(canvas, tmpstr);
                 break;
             case SCREEN_NET:
+            case SCREEN_NET2:
             case SCREEN_BAT:
             case SCREEN_TEMP:
             case SCREEN_FAN:
@@ -3446,6 +3517,7 @@ int main(int argc, const char *argv[]){
                             cycle--;
                             info_cycle  = cycle;
                         case SCREEN_NET:
+                        case SCREEN_NET2:
                             if (have_nic) {
                                 draw_net_screen(canvas, tmpstr, (char*) interface);
                                 if (have_nic) {
@@ -3461,6 +3533,7 @@ int main(int argc, const char *argv[]){
                 } else {
                     switch (cycle) {
                         case SCREEN_NET:
+                        case SCREEN_NET2:
                             if (have_nic) {
                                 draw_net_screen(canvas, tmpstr, (char*) interface);
                                 break;
