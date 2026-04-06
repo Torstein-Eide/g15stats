@@ -376,13 +376,13 @@ void format_float(char *tmpstr, char *format_less, char * format_great, float va
 char * show_bytes_short(unsigned long bytes) {
     static char tmpstr[32];
     if(bytes>=1024*1024) {
-      format_float(tmpstr, "%4.1fM","%4liM", (float)bytes / (1024*1024));
+      format_float(tmpstr, "%4.1fM","%4luM", (float)bytes / (1024*1024));
     }
     else if(bytes >= 1024) {
-      format_float(tmpstr, "%4.1fk","%4lik", (float)bytes / 1024);
+      format_float(tmpstr, "%4.1fk","%4luk", (float)bytes / 1024);
     }
     else {
-        sprintf(tmpstr,"%4liB",bytes);
+        sprintf(tmpstr,"%4luB",bytes);
     }
     return tmpstr;
 }
@@ -391,13 +391,13 @@ char * show_bytes_short(unsigned long bytes) {
 char * show_bytes(unsigned long bytes) {
     static char tmpstr[32];
     if(bytes>=1024*1024) {
-      format_float(tmpstr, "%2.1fMB","%liMB", (float)bytes / (1024*1024));
+      format_float(tmpstr, "%2.1fMB","%luMB", (float)bytes / (1024*1024));
     }
     else if(bytes >= 1024) {
-      format_float(tmpstr, "%2.1fkB","%likB", (float)bytes / 1024);
+      format_float(tmpstr, "%2.1fkB","%lukB", (float)bytes / 1024);
     }
     else {
-        sprintf(tmpstr,"%liB",bytes);
+        sprintf(tmpstr,"%luB",bytes);
     }
     return tmpstr;
 }
@@ -407,7 +407,7 @@ char * show_hertz_logic(int hertz, char *hz) {
     if (hertz >= 1000000) {
         format_float(tmpstr, "%3.1fG","%3.fG", (float)hertz / 1000000);
     } else if (hertz >= 1000) {
-        format_float(tmpstr, "%3.1fM","%3liM", (float)hertz / 1000);
+        format_float(tmpstr, "%3.1fM","%3luM", (float)hertz / 1000);
     } else {
         sprintf(tmpstr, "%3iK", hertz);
     }
@@ -542,9 +542,11 @@ int daemonise(int nochdir, int noclose) {
                     return -1;
                 }
                 if(noclose<1) {
-                    freopen( "/dev/null", "r", stdin);
-                    freopen( "/dev/null", "w", stdout);
-                    freopen( "/dev/null", "w", stderr);
+                    if (freopen("/dev/null", "r", stdin) == NULL
+                            || freopen("/dev/null", "w", stdout) == NULL
+                            || freopen("/dev/null", "w", stderr) == NULL) {
+                        return -1;
+                    }
                 }
                 break;
             }
@@ -767,7 +769,7 @@ void print_mem_info(g15canvas *canvas, char *tmpstr) {
     glibtop_mem mem;
     glibtop_get_mem(&mem);
 
-    sprintf(tmpstr,"Memory Used %dMB | Memory Total %dMB",(unsigned int)((mem.buffer+mem.cached+mem.user)/(1024*1024)),(unsigned int)(mem.total/(1024*1024)));
+    sprintf(tmpstr,"Memory Used %uMB | Memory Total %uMB",(unsigned int)((mem.buffer+mem.cached+mem.user)/(1024*1024)),(unsigned int)(mem.total/(1024*1024)));
     g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80-(strlen(tmpstr)*4)/2, INFO_ROW);
 }
 
@@ -775,7 +777,7 @@ void print_swap_info(g15canvas *canvas, char *tmpstr) {
     glibtop_swap swap;
     glibtop_get_swap(&swap);
 
-    sprintf(tmpstr,"Swap Used %dMB | Swap Avail. %dMB",(unsigned int)(swap.used/(1024*1024)),(unsigned int)(swap.total/(1024*1024)));
+    sprintf(tmpstr,"Swap Used %uMB | Swap Avail. %uMB",(unsigned int)(swap.used/(1024*1024)),(unsigned int)(swap.total/(1024*1024)));
     g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80-(strlen(tmpstr)*4)/2, INFO_ROW);
 }
 
@@ -891,7 +893,7 @@ void draw_swap_screen(g15canvas *canvas, char *tmpstr) {
     int swap_total   = swap.total / 1024;
 
     g15r_renderString (canvas, (unsigned char*)"Swap", 0, G15_TEXT_MED, TEXT_LEFT, 9);
-    sprintf(tmpstr,"Used %i%%",(unsigned int)(((float)swap_used/(float)swap_total)*100));
+    sprintf(tmpstr,"Used %u%%",(unsigned int)(((float)swap_used/(float)swap_total)*100));
     g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, TEXT_LEFT, 19);
 
     drawAll_both(canvas, 1, BAR_BOTTOM, swap_used, swap_total, swap_total-swap_used, swap_total);
@@ -988,11 +990,10 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
         }
         print_label(canvas, tmpstr, text_shift * id);
 
-        id++;
-        cur_shift += shift;
     }
     if ((have_temp) || (have_fan)) {
         g15_stats_info sensors[NUM_PROBES];
+        memset(sensors, 0, sizeof(sensors));
         // Temperature section
         if ((have_temp) && (id < summary_rows)) {
             count = get_sensors(sensors, SCREEN_TEMP, sensor_type_temp, sensor_lost_temp, sensor_temp_id);
@@ -1025,11 +1026,9 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
 
         drawAll_both(canvas, cur_shift + y1 + move, cur_shift + y2 + move, swap_used, swap_total, swap_total - swap_used, swap_total);
 
-        sprintf(tmpstr, "Swp %3i%%", (unsigned int) (((float) swap_used / (float) swap_total)*100));
+        sprintf(tmpstr, "Swp %3u%%", (unsigned int) (((float) swap_used / (float) swap_total)*100));
         print_label(canvas, tmpstr, text_shift * id);
 
-        id++;
-        cur_shift += shift;
     }
 }
 /* draw cpu screen.  if drawgraph = 0 then no graph is drawn */
@@ -1115,7 +1114,6 @@ void draw_freq_screen_aggregate(g15canvas *canvas, char *tmpstr) {
     int global_min = 0;
     int global_sum = 0;
     int global_count = 0;
-    int global_scale = 0;
     int global_min_allowed = 0;
     int baseline = 0;
     static int last_logged_baseline = -1;
@@ -1186,9 +1184,8 @@ void draw_freq_screen_aggregate(g15canvas *canvas, char *tmpstr) {
         return;
     }
 
-    if (global_scale <= 0) {
-        global_scale = global_max;
-    }
+    int global_scale = global_max;
+
     if (global_scale <= 0) {
         global_scale = 1;
     }
@@ -1883,7 +1880,6 @@ void calc_info_cycle(void) {
                     info_cycle = SCREEN_NET2;
                     break;
                 }
-                info_cycle_timer += info_pause;
             default:
                 info_cycle_timer = 0;
                 info_cycle = SCREEN_SUMMARY;
@@ -2179,7 +2175,11 @@ int main(int argc, char *argv[]){
                      output_file_path,
                      sizeof(output_file_path));
 
-    for (i=0;i<argc;i++) {
+    for (i = 1; i < argc; i++) {
+        if (argv[i] == NULL) {
+            continue;
+        }
+
         if(0==strncmp(argv[i],"-d",2)||0==strncmp(argv[i],"--daemon",8)) {
             go_daemon=1;
         }
@@ -2232,7 +2232,7 @@ int main(int argc, char *argv[]){
             return 0;
         }
         if(0==strncmp(argv[i],"-i",2)||0==strncmp(argv[i],"--interface",11)) {
-          if(argv[i+1]!=NULL) {
+          if((i + 1) < argc) {
             have_nic=1;
             i++;
             strncpy((char*)interface,argv[i],127);
@@ -2240,7 +2240,7 @@ int main(int argc, char *argv[]){
           }
         }
         if(0==strncmp(argv[i],"-t",2)||0==strncmp(argv[i],"--temperature",13)) {
-          if(argv[i+1]!=NULL) {
+          if((i + 1) < argc) {
             i++;
             sensor_temp_id = atoi(argv[i]);
             if (sensor_temp_id >= MAX_SENSOR) {
@@ -2250,14 +2250,14 @@ int main(int argc, char *argv[]){
         }
 
         if(0==strncmp(argv[i],"-gt",3)||0==strncmp(argv[i],"--global-temp",13)) {
-          if(argv[i+1]!=NULL) {
+          if((i + 1) < argc) {
             i++;
             sensor_temp_main = atoi(argv[i]);
           }
         }
 
         if(0==strncmp(argv[i],"-f",2)||0==strncmp(argv[i],"--fan",5)) {
-          if(argv[i+1]!=NULL) {
+          if((i + 1) < argc) {
             i++;
             sensor_fan_id = atoi(argv[i]);
             if (sensor_fan_id >= MAX_SENSOR) {
@@ -2267,7 +2267,7 @@ int main(int argc, char *argv[]){
         }
 
         if(0==strncmp(argv[i],"-r",2)||0==strncmp(argv[i],"--refresh",9)) {
-          if(argv[i+1]!=NULL) {
+          if((i + 1) < argc) {
             i++;
             wait_seconds = atoi(argv[i]);
             if ((wait_seconds < 1) || (wait_seconds > MAX_INTERVAL)) {
@@ -2276,7 +2276,7 @@ int main(int argc, char *argv[]){
           }
         }
         if(0==strncmp(argv[i],"-o",2)||0==strncmp(argv[i],"--output-file",13)) {
-          if(argv[i+1]!=NULL) {
+          if((i + 1) < argc) {
             i++;
             strncpy(output_file_path, argv[i], sizeof(output_file_path)-1);
             output_file_path[sizeof(output_file_path)-1] = '\0';
@@ -2304,8 +2304,12 @@ int main(int argc, char *argv[]){
 
     if(canvas != NULL)
         g15r_initCanvas(canvas);
-    else
+    else {
+        if (output_file != NULL) {
+            fclose(output_file);
+        }
         return -1;
+    }
 
     glibtop_init();
     if (use_screen_output == 1) {
