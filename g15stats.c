@@ -99,6 +99,7 @@ int cpu2_bar_height = 3;
 int cpu2_debug_logged = 0;
 int mode_overlay_ticks = 0;
 char mode_overlay_text[96] = {0};
+char mode_overlay_tag[16] = {0};
 
 _Bool sensor_type_temp[MAX_SENSOR];
 _Bool sensor_type_fan[MAX_SENSOR];
@@ -163,7 +164,7 @@ double mem_pressure_full_avg10 = 0.0;
 double mem_pressure_full_avg60 = 0.0;
 double mem_pressure_full_avg300 = 0.0;
 
-_Bool net_scale_absolute=0;
+int net_scale_absolute=0;
 
 pthread_cond_t wake_now = PTHREAD_COND_INITIALIZER;
 
@@ -438,7 +439,9 @@ static int overlay_screen_number(int screen_id) {
 static const char *mode_description(int screen_id, int mode_value) {
     switch (screen_id) {
         case SCREEN_NET:
-            return mode_value ? "NET: absolute scale" : "NET: autoscale";
+            if (mode_value == 1) return "NET: absolute scale";
+            if (mode_value == 2) return "NET: tiered scale";
+            return "NET: autoscale";
         case SCREEN_CPU2:
             return mode_value ? "CPU2: vertical bars" : "CPU2: horizontal bars";
         case SCREEN_CPU:
@@ -462,8 +465,46 @@ static const char *mode_description(int screen_id, int mode_value) {
                 return "MEM PSI: history";
             }
             return "MEM PSI: details";
+        case SCREEN_SUMMARY:
+            return mode_value ? "SUMMARY: compact" : "SUMMARY: expanded";
+        case SCREEN_FREQ_AGG:
+            return mode_value ? "FREQ AGG: freq view" : "FREQ AGG: load view";
+        case SCREEN_TEMP:
+        case SCREEN_FAN:
+            return "Sensor: next";
         default:
-            return mode_value ? "Mode: 1" : "Mode: 0";
+            return mode_value ? "Mode: on" : "Mode: off";
+    }
+}
+
+static const char *mode_short_name(int screen_id, int mode_value) {
+    switch (screen_id) {
+        case SCREEN_NET:
+            if (mode_value == 1) return "ABS";
+            if (mode_value == 2) return "TIER";
+            return "AUTO";
+        case SCREEN_CPU:
+            return mode_value ? "DETAIL" : "SIMPLE";
+        case SCREEN_CPU2:
+            return mode_value ? "VERT" : "HORIZ";
+        case SCREEN_GPU:
+            if (mode_value == 1) return "DETAIL";
+            if (mode_value == 2) return "PLOT";
+            return "BARS";
+        case SCREEN_MEM_PRESSURE:
+            if (mode_value == 1) return "DETAIL";
+            if (mode_value == 2) return "HIST";
+            return "BARS";
+        case SCREEN_SUMMARY:
+            return mode_value ? "CMPCT" : "EXPND";
+        case SCREEN_FREQ_AGG:
+            return mode_value ? "FREQ" : "LOAD";
+        case SCREEN_TEMP:
+            return "SNSR";
+        case SCREEN_FAN:
+            return "SNSR";
+        default:
+            return mode_value ? "ON" : "OFF";
     }
 }
 
@@ -471,13 +512,14 @@ static const char *submode_description(int submode_value) {
     return submode_value ? "Submode: fixed info" : "Submode: rotate info";
 }
 
-static void queue_mode_overlay(const char *text) {
+static void queue_mode_overlay(const char *text, const char *tag) {
     if (text == NULL || text[0] == '\0') {
         return;
     }
 
     snprintf(mode_overlay_text, sizeof(mode_overlay_text), "%s", text);
-    mode_overlay_ticks = 2;
+    snprintf(mode_overlay_tag, sizeof(mode_overlay_tag), "%s", tag ? tag : "");
+    mode_overlay_ticks = 3;
 }
 
 static void apply_config_value(const char *key,
@@ -495,7 +537,10 @@ static void apply_config_value(const char *key,
     } else if (strcmp(key, "unicore") == 0) {
         *unicore = parse_bool_value(value);
     } else if (strcmp(key, "net_scale_absolute") == 0) {
-        net_scale_absolute = parse_bool_value(value);
+        if (parse_int_value(value, &parsed) && parsed >= 0 && parsed <= 2)
+            net_scale_absolute = parsed;
+        else
+            net_scale_absolute = parse_bool_value(value);
     } else if (strcmp(key, "disable_freq") == 0) {
         have_freq = parse_bool_value(value) ? 0 : 2;
     } else if (strcmp(key, "info_rotate") == 0) {
@@ -2242,6 +2287,8 @@ void draw_swap_screen(g15canvas *canvas, char *tmpstr) {
     print_vert_label(canvas, "FREE");
 }
 
+static void draw_net_tiered_bar(g15canvas *canvas, int y1, int y2, unsigned long val);
+
 void print_label(g15canvas *canvas, char *tmpstr, int cur_shift) {
     g15r_renderString(canvas, (unsigned char*) tmpstr, 0, G15_TEXT_MED, TEXT_LEFT, cur_shift + 1);
 }
@@ -2348,8 +2395,8 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
 
         drawLine_both(canvas, cur_shift + y1 + move, cur_shift + y2 + move);
 
-        drawBar_both(canvas, cur_shift + y1 + move, cur_shift + y + move, net_cur_in + 1, net_max_in, net_max_in - net_cur_in, net_max_in);
-        drawBar_both(canvas, cur_shift + y + move + 1, cur_shift + y2 + move, net_cur_out + 1, net_max_out, net_max_out - net_cur_out, net_max_out);
+        draw_net_tiered_bar(canvas, cur_shift + y1 + move, cur_shift + y + move, net_cur_in);
+        draw_net_tiered_bar(canvas, cur_shift + y + move + 1, cur_shift + y2 + move, net_cur_out);
 
         if (net_cur_in > net_cur_out) {
             sprintf(tmpstr, "IN %s", show_bytes_short((int) net_cur_in));
@@ -3337,6 +3384,42 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
     }
 }
 
+/* Log10 scale from 1M to 1G: maps each decade to equal visual space. */
+static float tiered_graph_height(unsigned long val, float baseline, float pixels)
+{
+    double log_val, frac;
+    if (val < 1) return baseline;
+    log_val = log10((double)val / NET_SCALE_1M);
+    if (log_val < 0.0) return baseline;
+    frac = log_val / 3.0; /* log10(1G/1M) == 3 */
+    if (frac > 1.0) frac = 1.0;
+    return baseline - (float)(frac * pixels);
+}
+
+/* Horizontal log-scaled bar for the summary screen (BAR_START..BAR_END).
+   Tick marks at the 10M (1/3) and 100M (2/3) positions. */
+static void draw_net_tiered_bar(g15canvas *canvas, int y1, int y2, unsigned long val)
+{
+    int bar_width = BAR_END - BAR_START;
+    int tick_10m  = BAR_START + bar_width / 3;
+    int tick_100m = BAR_START + 2 * bar_width / 3;
+    double log_val, frac;
+    int fill_px = 0;
+
+    if (val >= 1) {
+        log_val = log10((double)val / NET_SCALE_1M);
+        if (log_val > 0.0) {
+            frac = log_val / 3.0;
+            if (frac > 1.0) frac = 1.0;
+            fill_px = (int)(frac * bar_width);
+        }
+    }
+    if (fill_px > 0)
+        g15r_pixelBox(canvas, BAR_START, y1, BAR_START + fill_px, y2, G15_COLOR_BLACK, 1, 0);
+    g15r_drawLine(canvas, tick_10m,  y1, tick_10m,  y2, G15_COLOR_BLACK);
+    g15r_drawLine(canvas, tick_100m, y1, tick_100m, y2, G15_COLOR_BLACK);
+}
+
 void draw_net_screen(g15canvas *canvas, char *tmpstr, char *interface) {
     int i;
     int x=0;
@@ -3351,40 +3434,73 @@ void draw_net_screen(g15canvas *canvas, char *tmpstr, char *interface) {
     // in
     x=53;
     for(i=net_rr_index+1;i<MAX_NET_HIST;i++) {
-      diff = (float) net_max_in / (float) net_hist[i][0];
-      height = 16-(16/diff);
-      g15r_setPixel(canvas,x,height,G15_COLOR_BLACK);
-      g15r_drawLine(canvas,x,height,x-1,last,G15_COLOR_BLACK);
+      if (net_scale_absolute == 2)
+        height = tiered_graph_height(net_hist[i][0], 16.0f, 16.0f);
+      else {
+        diff = (float) net_max_in / (float) net_hist[i][0];
+        height = 16-(16/diff);
+      }
+      g15r_setPixel(canvas,x,(int)height,G15_COLOR_BLACK);
+      g15r_drawLine(canvas,x,(int)height,x-1,(int)last,G15_COLOR_BLACK);
       last=height;
       x++;
     }
     for(i=0;i<net_rr_index;i++) {
-      diff = (float) net_max_in / (float) net_hist[i][0];
-      height = 16-(16 / diff);
-      g15r_drawLine(canvas,x,height,x-1,last,G15_COLOR_BLACK);
+      if (net_scale_absolute == 2)
+        height = tiered_graph_height(net_hist[i][0], 16.0f, 16.0f);
+      else {
+        diff = (float) net_max_in / (float) net_hist[i][0];
+        height = 16-(16 / diff);
+      }
+      g15r_drawLine(canvas,x,(int)height,x-1,(int)last,G15_COLOR_BLACK);
       last=height;
       x++;
     }
     // out
     x=53;
+    last=0;
     for(i=net_rr_index+1;i<MAX_NET_HIST;i++) {
-      diff = (float) net_max_out / (float) net_hist[i][1];
-      height = 34-(16/diff);
-      g15r_setPixel(canvas,x,height,G15_COLOR_BLACK);
-      g15r_drawLine(canvas,x,height,x-1,last,G15_COLOR_BLACK);
+      if (net_scale_absolute == 2)
+        height = tiered_graph_height(net_hist[i][1], 34.0f, 16.0f);
+      else {
+        diff = (float) net_max_out / (float) net_hist[i][1];
+        height = 34-(16/diff);
+      }
+      g15r_setPixel(canvas,x,(int)height,G15_COLOR_BLACK);
+      g15r_drawLine(canvas,x,(int)height,x-1,(int)last,G15_COLOR_BLACK);
       last=height;
       x++;
     }
     for(i=0;i<net_rr_index;i++) {
-      diff = (float) net_max_out / (float) net_hist[i][1];
-      height = 34-(16 / diff);
-      g15r_drawLine(canvas,x,height,x-1,last,G15_COLOR_BLACK);
+      if (net_scale_absolute == 2)
+        height = tiered_graph_height(net_hist[i][1], 34.0f, 16.0f);
+      else {
+        diff = (float) net_max_out / (float) net_hist[i][1];
+        height = 34-(16 / diff);
+      }
+      g15r_drawLine(canvas,x,(int)height,x-1,(int)last,G15_COLOR_BLACK);
       last=height;
       x++;
     }
     g15r_drawLine (canvas, 52, 0, 52, 34, G15_COLOR_BLACK);
     g15r_drawLine (canvas, 53, 0, 53, 34, G15_COLOR_BLACK);
     g15r_drawLine (canvas, 54, 0, 54, 34, G15_COLOR_BLACK);
+
+    /* Tier dividers: dashed lines at 10M and 100M boundaries */
+    if (net_scale_absolute == 2) {
+        /* IN: baseline=16, pixels=16 → 10M at y≈11, 100M at y≈5 */
+        /* OUT: baseline=34, pixels=16 → 10M at y≈29, 100M at y≈23 */
+        int in_10m  = (int)tiered_graph_height(NET_SCALE_10M,  16.0f, 16.0f);
+        int in_100m = (int)tiered_graph_height(NET_SCALE_100M, 16.0f, 16.0f);
+        int out_10m  = (int)tiered_graph_height(NET_SCALE_10M,  34.0f, 16.0f);
+        int out_100m = (int)tiered_graph_height(NET_SCALE_100M, 34.0f, 16.0f);
+        for (x = 55; x < 160; x += 3) {
+            g15r_setPixel(canvas, x, in_10m,   G15_COLOR_BLACK);
+            g15r_setPixel(canvas, x, in_100m,  G15_COLOR_BLACK);
+            g15r_setPixel(canvas, x, out_10m,  G15_COLOR_BLACK);
+            g15r_setPixel(canvas, x, out_100m, G15_COLOR_BLACK);
+        }
+    }
 
     snprintf(tmpstr, MAX_LINES, "IN %s", show_bytes(netload.bytes_in));
     g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 2);
@@ -3394,11 +3510,12 @@ void draw_net_screen(g15canvas *canvas, char *tmpstr, char *interface) {
     snprintf(tmpstr, MAX_LINES, "%s", interface);
     g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_LARGE, 25-(strlen(tmpstr)*9)/2, 14);
 
-    if (net_scale_absolute) {
+    if (net_scale_absolute == 1)
         print_vert_label_logic(canvas, "ABS  ", 47);
-    } else {
+    else if (net_scale_absolute == 2)
+        print_vert_label_logic(canvas, "TIER ", 47);
+    else
         print_vert_label_logic(canvas, "REL  ", 47);
-    }
 }
 
 void draw_bat_screen(g15canvas *canvas, char *tmpstr, int all) {
@@ -3851,27 +3968,25 @@ void draw_screen_overlay(g15canvas *canvas, char *tmpstr) {
 }
 
 void draw_mode_overlay(g15canvas *canvas, char *tmpstr) {
-    int overlay_left = 56;
+    int overlay_left = 40;
+    int number_x = 140;
     int y1 = 0;
-    int y2 = 12;
-    int x;
+    int y2 = 10;
 
     if (mode_overlay_ticks <= 0 || mode_overlay_text[0] == '\0') {
         return;
     }
 
-    snprintf(tmpstr, MAX_LINES, "%s", mode_overlay_text);
-    x = G15_LCD_WIDTH - ((int) strlen(tmpstr) * 6) - 1;
-    if (x < overlay_left) {
-        x = overlay_left;
-    }
-
     g15r_pixelBox(canvas, overlay_left, y1, G15_LCD_WIDTH - 1, y2, G15_COLOR_WHITE, 1, 1);
-    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, x, 1);
+    snprintf(tmpstr, MAX_LINES, "%s", mode_overlay_text);
+    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, overlay_left, 1);
+    if (mode_overlay_tag[0])
+        g15r_renderString(canvas, (unsigned char*)mode_overlay_tag, 0, G15_TEXT_MED, number_x, 1);
 
     mode_overlay_ticks--;
     if (mode_overlay_ticks <= 0) {
         mode_overlay_text[0] = '\0';
+        mode_overlay_tag[0] = '\0';
     }
 }
 
@@ -3922,7 +4037,7 @@ void keyboard_watch(void) {
                     switch (cycle) {
                         case SCREEN_NET:
                             if (have_nic) {
-                                net_scale_absolute ^= 1;
+                                net_scale_absolute = (net_scale_absolute + 1) % 3;
                             } else {
                                 change = 0;
                             }
@@ -3977,11 +4092,13 @@ void keyboard_watch(void) {
             }
 
             if (mode_changed) {
-                queue_mode_overlay(mode_description(cycle, mode[cycle]));
+                queue_mode_overlay(mode_description(cycle, mode[cycle]),
+                                   mode_short_name(cycle, mode[cycle]));
                 mode_changed = 0;
             }
             if (submode_changed) {
-                queue_mode_overlay(submode_description(submode));
+                queue_mode_overlay(submode_description(submode),
+                                   submode ? "FIXED" : "ROTAT");
                 submode_changed = 0;
             }
 
@@ -4029,11 +4146,15 @@ void network_watch(void *iface) {
             net_hist[i][0] = net_cur_in;
             net_hist[i][1] = net_cur_out;
 
-            if (net_scale_absolute==1) {
+            if (net_scale_absolute == 1) {
                 net_max_in = maxi(net_max_in, net_cur_in);
                 net_max_out = maxi(net_max_out, net_cur_out);
+            } else if (net_scale_absolute == 2) {
+                /* tiered: fixed 1G ceiling, log scale rendered in draw_net_screen */
+                net_max_in  = NET_SCALE_1G;
+                net_max_out = NET_SCALE_1G;
             } else {
-                /* Try ti auto-resize the net graph */
+                /* Try to auto-resize the net graph */
                 /* check for max value */
                 for (j = 0; j < MAX_NET_HIST; j++) {
                     max_in = maxi(max_in, net_hist[j][0]);

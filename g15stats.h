@@ -4,6 +4,11 @@
 
 #define MAX_NET_HIST	107
 
+#define NET_SCALE_1M    1000000UL
+#define NET_SCALE_10M   10000000UL
+#define NET_SCALE_100M  100000000UL
+#define NET_SCALE_1G    1000000000UL
+
 #define MAX_SENSOR      4
 
 #define MAX_MODE        2
