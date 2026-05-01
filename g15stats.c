@@ -367,8 +367,7 @@ static int get_forced_mode(void) {
 static const char *screen_name(int screen_id) {
     switch (screen_id) {
         case SCREEN_SUMMARY: return "SUMMARY";
-        case SCREEN_CPU: return "CPU LOAD";
-        case SCREEN_CPU2: return "CPU LOAD2";
+        case SCREEN_CPU2: return "CPU LOAD";
         case SCREEN_FREQ_AGG: return "CPU FREQ AGG";
         case SCREEN_MEM: return "MEMORY";
         case SCREEN_SWAP: return "SWAP";
@@ -451,9 +450,7 @@ static const char *mode_description(int screen_id, int mode_value) {
             if (mode_value == 2) return "NET: tiered scale";
             return "NET: autoscale";
         case SCREEN_CPU2:
-            return mode_value ? "CPU2: vertical bars" : "CPU2: horizontal bars";
-        case SCREEN_CPU:
-            return mode_value ? "CPU: detailed bars" : "CPU: simple bars";
+            return mode_value ? "CPU: vertical bars" : "CPU: horizontal bars";
         case SCREEN_GPU:
             if (mode_value == 0) {
                 return "GPU: bars";
@@ -491,8 +488,6 @@ static const char *mode_short_name(int screen_id, int mode_value) {
             if (mode_value == 1) return "ABS";
             if (mode_value == 2) return "TIER";
             return "AUTO";
-        case SCREEN_CPU:
-            return mode_value ? "DETAIL" : "SIMPLE";
         case SCREEN_CPU2:
             return mode_value ? "VERT" : "HORIZ";
         case SCREEN_GPU:
@@ -3064,13 +3059,6 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
         case    SCREEN_SUMMARY  :
             draw_cpu_screen_unicore_logic(canvas, cpu, tmpstr, 0, 0, 1);
             break;
-        case SCREEN_CPU :
-            if ((unicore) || (ncpu==1)) {
-               draw_cpu_screen_unicore_logic(canvas, cpu, tmpstr, 1, 1, 0);
-                return;
-            }
-            draw_cpu_screen_unicore_logic(canvas, cpu, tmpstr, 0, 1, 0);
-            break;
         case SCREEN_CPU2:
             if (mode[SCREEN_CPU2]) {
                 draw_cpu_screen_vertical(canvas, cpu, tmpstr);
@@ -3114,12 +3102,6 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
     }
 
     switch (cycle) {
-        case    SCREEN_CPU :
-            if(ncpu > 4){
-                spacer = 0;
-            }
-            height = 12;
-            break;
         case    SCREEN_CPU2 :
             if(ncpu > 4){
                 spacer = 0;
@@ -3200,30 +3182,6 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
         y2 = y1 + height - 1;
 
         switch (cycle) {
-            case SCREEN_CPU:
-                if (mode[cycle]) {
-                    divider = 9 / ncpu;
-                    sub_val = divider * core;
-                    g15r_drawBar(canvas, BAR_START, sub_val, BAR_END, divider + sub_val, G15_COLOR_BLACK, b_user[core] + 1, b_total[core], 4);
-                    g15r_drawBar(canvas, BAR_START, shift + sub_val, BAR_END, shift + divider + sub_val, G15_COLOR_BLACK, b_sys[core] + 1, b_total[core], 4);
-                    y1 = 0;
-                    y2 = shift2 + divider + sub_val;
-                    g15r_drawBar(canvas, BAR_START, shift2 + sub_val, BAR_END, y2, G15_COLOR_BLACK, b_nice[core] + 1, b_total[core], 4);
-
-                    divider = y2 / ncpu;
-                    drawBar_reversed(canvas, BAR_START, sub_val, BAR_END, y2, G15_COLOR_BLACK, b_idle[core] + 1, b_total[core], 5);
-                } else {
-                    current_value = b_total[core] - b_idle[core];
-                    drawBar_both(canvas, y1, y2, current_value, b_total[core], b_total[core] - current_value, b_total[core]);
-
-                    drawBar_both(canvas, shift + y1, shift + y2, b_sys[core] + 1, b_total[core], b_total[core] - b_sys[core], b_total[core]);
-
-                    y2 += shift2;
-                    drawBar_both(canvas, shift2 + y1, y2, b_nice[core] + 1, b_total[core], b_total[core] - b_nice[core], b_total[core]);
-
-                    y1 = 0;
-                }
-                break;
             case SCREEN_CPU2:
                 if (mode[cycle]) {
                     divider = 9 / ncpu;
@@ -3719,9 +3677,6 @@ void calc_info_cycle(void) {
             case SCREEN_SUMMARY:
                 info_cycle = SCREEN_SUMMARY;
                 break;
-            case SCREEN_CPU:
-                info_cycle = SCREEN_CPU;
-                break;
             case SCREEN_CPU2:
                 info_cycle = SCREEN_CPU2;
                 break;
@@ -3808,7 +3763,6 @@ void print_info_label(g15canvas *canvas, char *tmpstr) {
         case SCREEN_SUMMARY :
             print_time_info(canvas, tmpstr);
             break;
-        case SCREEN_CPU :
         case SCREEN_CPU2:
             print_sys_load_info(canvas, tmpstr);
             break;
@@ -4473,7 +4427,6 @@ int main(int argc, const char *argv[]){
         calc_info_cycle();
         switch (cycle) {
             case SCREEN_SUMMARY:
-            case SCREEN_CPU:
             case SCREEN_CPU2:
             case SCREEN_FREQ_AGG:
                 draw_cpu_screen_multicore(canvas, tmpstr, unicore);
