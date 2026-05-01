@@ -63,6 +63,10 @@ This is a simple stats client showing graphs for CPU, MEM & Swap usage, Network 
 #include <yaml.h>
 #include "g15stats.h"
 
+/* ================================================================
+ * Global state
+ * ================================================================ */
+
 int g15screen_fd;
 
 static volatile sig_atomic_t keep_running = 1;
@@ -79,11 +83,13 @@ int mode[MAX_SCREENS + 1];
 /** Holds the sub mode type variable of the application running */
 int submode     = 1;
 
+// Monotonically incremented each frame; divided by info_pause to select which screen's info label to show.
 int info_cycle_timer    = -1;
 
 // Summary Screen indicators count 4 or 5
 int summary_rows    = 4;
 
+// 2 = not yet probed; updated to 1 if CPU freq sysfs files are readable, 0 if absent.
 int have_freq   = 2;
 
 int wait_seconds = 1;
@@ -100,18 +106,23 @@ _Bool show_screen_overlay = 1;
 _Bool bar_chart_background = 0;
 _Bool temp_filter_bypass = 0;
 
+// overlay_ticks counts down each rendered frame; while > 0, draw_screen_overlay shows the screen name banner.
 int overlay_screen = -1;
 int overlay_ticks = 0;
 int cpu2_min_bar_width = 3;
 int cpu2_bar_height = 3;
 int cpu2_debug_logged = 0;
+// mode_overlay_ticks counts down each frame; while > 0, draw_mode_overlay shows the mode change banner.
 int mode_overlay_ticks = 0;
 char mode_overlay_text[96] = {0};
 char mode_overlay_tag[16] = {0};
 
+// false = hwmon-by-index, true = hwmon-by-name (set by auto_select_sensor).
 _Bool sensor_type_temp[MAX_SENSOR];
 _Bool sensor_type_fan[MAX_SENSOR];
 
+// Nonzero while the sensor slot is live. Initialised to 1 (present), reset to
+// RETRY_COUNT on confirmed read, decremented on each read failure; 0 = lost.
 int sensor_lost_temp[MAX_SENSOR];
 int sensor_lost_fan[MAX_SENSOR];
 int sensor_lost_bat     = 1;
@@ -172,6 +183,7 @@ double mem_pressure_full_avg10 = 0.0;
 double mem_pressure_full_avg60 = 0.0;
 double mem_pressure_full_avg300 = 0.0;
 
+// 0 = autoscale, 1 = absolute fixed axis, 2 = tiered log scale.
 int net_scale_absolute=0;
 
 pthread_cond_t wake_now = PTHREAD_COND_INITIALIZER;
@@ -200,6 +212,13 @@ static const char *default_user_config_yaml =
     "# global_temp: 0\n"
     "# fan: 0\n"
     "# output_file: /tmp/g15stats.frames\n";
+
+/* ================================================================
+ * Configuration
+ * Priority: G15STATS_CONFIG_FILE env var > ~/.config/g15stats/g15stats.yaml
+ *           > /etc/g15plugins/g15stats.yaml.
+ * A default user config is written on first run if none exists.
+ * ================================================================ */
 
 static int build_user_config_path(char *path, size_t path_len) {
     const char *home = getenv("HOME");
@@ -363,6 +382,12 @@ static int get_forced_mode(void) {
 
     return -1;
 }
+
+/* ================================================================
+ * Screen metadata
+ * Functions for screen names, visibility, navigation, and mode/submode
+ * descriptions used throughout the display logic.
+ * ================================================================ */
 
 static const char *screen_name(int screen_id) {
     switch (screen_id) {
@@ -730,6 +755,12 @@ static void load_config_file(int *go_daemon,
     fclose(fp);
 }
 
+/* ================================================================
+ * Utility functions
+ * Math helpers, string/unit formatters, and low-level LCD render
+ * primitives shared across screen renderers.
+ * ================================================================ */
+
 unsigned long maxi(unsigned long a, unsigned long b) {
   if(a>b)
     return a;
@@ -881,6 +912,12 @@ void print_vert_label_logic(g15canvas *canvas, const char *label, unsigned int s
 void print_vert_label(g15canvas *canvas, const char *label){
     print_vert_label_logic(canvas, label, TEXT_RIGHT);
 }
+
+/* ================================================================
+ * Hardware / sensor probing
+ * Initialisation and polling for battery, CPU, GPU, temperature,
+ * fan, memory pressure, and network interface hardware.
+ * ================================================================ */
 
 void init_battery_sensor(void) {
     int i;
@@ -1516,6 +1553,7 @@ int count_nonzero_fan_probes(int sensor_id, _Bool sensor_type) {
     return count;
 }
 
+// Rolling average over TEMP_FILTER_WINDOW samples to smooth out sensor noise.
 float filter_temp_sample(int sensor_id, int probe_index, float sample) {
     int idx;
     int count;
@@ -1552,6 +1590,8 @@ float filter_temp_sample(int sensor_id, int probe_index, float sample) {
     return sum / (float) count;
 }
 
+// Scans all hwmon slots and picks the one with the most active probes.
+// Prefers named hwmon entries (e.g. "k10temp", "coretemp") over raw indices.
 void auto_select_sensor(int screen_id) {
     int sid;
     int best_id = SENSOR_ERROR;
@@ -1802,6 +1842,12 @@ int get_sensors(g15_stats_info *sensors, int screen_id, _Bool *sensor_type, int 
     return count;
 }
 
+/* ================================================================
+ * Info label printers
+ * Render the rotating status text at the bottom of the LCD for each
+ * screen type.  Called from print_info_label() based on info_cycle.
+ * ================================================================ */
+
 void print_sys_load_info(g15canvas *canvas, char *tmpstr) {
     glibtop_loadavg loadavg;
     glibtop_uptime uptime;
@@ -1895,6 +1941,13 @@ void print_freq_info(g15canvas *canvas, char *tmpstr) {
 
     render_info_text(canvas, tmpstr);
 }
+
+/* ================================================================
+ * Screen renderers
+ * One draw_*_screen function per logical display screen.  Each
+ * function writes into `canvas` and uses `tmpstr` as a scratch
+ * buffer for g15r_renderString calls.
+ * ================================================================ */
 
 void draw_gpu_screen(g15canvas *canvas, char *tmpstr) {
     int plot_mode = 0;
@@ -3303,6 +3356,8 @@ static void draw_net_tiered_bar(g15canvas *canvas, int y1, int y2, unsigned long
     g15r_drawLine(canvas, tick_100m, y1, tick_100m, y2, G15_COLOR_BLACK);
 }
 
+/* --- Network, battery, temperature, and fan screens --- */
+
 void draw_net_screen(g15canvas *canvas, char *tmpstr, char *interface) {
     int i;
     int x=0;
@@ -3663,6 +3718,13 @@ void draw_g15_stats_info_screen(g15canvas *canvas, char *tmpstr, int all, int sc
     }
 }
 
+/* ================================================================
+ * Info cycling and label dispatch
+ * calc_info_cycle() advances info_cycle_timer and selects which
+ * screen's status text to show.  In submode 0 it rotates
+ * automatically; in submode 1 it is fixed to the active screen.
+ * ================================================================ */
+
 void calc_info_cycle(void) {
     int info_pause = get_info_pause();
 
@@ -3826,6 +3888,13 @@ void print_info_label(g15canvas *canvas, char *tmpstr) {
     }
 }
 
+/* ================================================================
+ * Overlays
+ * Transient banners drawn on top of the active screen.
+ * screen overlay: shown for overlay_ticks frames after navigation.
+ * mode overlay:   shown for mode_overlay_ticks frames after a mode change.
+ * ================================================================ */
+
 void draw_screen_overlay(g15canvas *canvas, char *tmpstr) {
     int overlay_left = 40;
     int number_x = 140;
@@ -3868,6 +3937,13 @@ void draw_mode_overlay(g15canvas *canvas, char *tmpstr) {
         mode_overlay_tag[0] = '\0';
     }
 }
+
+/* ================================================================
+ * Input handling and background threads
+ * keyboard_watch() runs in the main thread and processes G15 key
+ * events.  network_watch() and auto_discover_nic() run on a
+ * dedicated thread to keep network stats up-to-date.
+ * ================================================================ */
 
 void keyboard_watch(void) {
     unsigned int keystate;
@@ -4168,6 +4244,10 @@ static void draw_optional_screen(g15canvas *canvas, char *tmpstr, int screen,
             break;
     }
 }
+
+/* ================================================================
+ * Entry point
+ * ================================================================ */
 
 int main(int argc, const char *argv[]){
 
