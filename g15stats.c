@@ -4249,87 +4249,49 @@ static void draw_optional_screen(g15canvas *canvas, char *tmpstr, int screen,
  * Entry point
  * ================================================================ */
 
-int main(int argc, const char *argv[]){
-
-    g15canvas *canvas;
-    pthread_t keys_thread;
-    pthread_t net_thread;
-    
+// Returns 1 if the program should exit immediately (--help), 0 to continue.
+static int parse_args(int argc, const char *argv[],
+                      unsigned char *interface, size_t interface_size,
+                      char *output_file_path, size_t output_file_path_size,
+                      int *go_daemon, int *unicore) {
     int i;
-    int go_daemon=0;
-    unsigned char interface[128] = {0};
-    char output_file_path[512] = {0};
-    FILE *output_file = NULL;
-    int use_screen_output = 1;
-    static char tmpstr[MAX_LINES];
-    int unicore = 0;
-    int forced_screen = -1;
-    int forced_mode = -1;
-    
-    load_config_file(&go_daemon,
-                     &unicore,
-                     interface,
-                     &have_nic,
-                     output_file_path,
-                     sizeof(output_file_path));
-
-    init_cpu_vendor_flags();
-
-    init_battery_sensor();
-
     for (i = 1; i < argc; i++) {
-        if (argv[i] == NULL) {
+        if (argv[i] == NULL)
             continue;
-        }
 
-        if(0==strncmp(argv[i],"-d",2)||0==strncmp(argv[i],"--daemon",8)) {
-            go_daemon=1;
-        }
-        if(0==strncmp(argv[i],"-u",2)||0==strncmp(argv[i],"--unicore",9)) {
-            unicore=1;
-        }
-        if(0==strncmp(argv[i],"-nsa",4)||0==strncmp(argv[i],"--net-scale-absolute",20)) {
-            net_scale_absolute=1;
-        }
-
-        if(0==strncmp(argv[i],"-df",3)||0==strncmp(argv[i],"--disable-freq",14)) {
-            have_freq=0;
-        }
-
-        if(0==strncmp(argv[i],"-rc",3)||0==strncmp(argv[i],"--info-rotate",13)) {
+        if (0==strncmp(argv[i],"-d",2)||0==strncmp(argv[i],"--daemon",8))
+            *go_daemon = 1;
+        if (0==strncmp(argv[i],"-u",2)||0==strncmp(argv[i],"--unicore",9))
+            *unicore = 1;
+        if (0==strncmp(argv[i],"-nsa",4)||0==strncmp(argv[i],"--net-scale-absolute",20))
+            net_scale_absolute = 1;
+        if (0==strncmp(argv[i],"-df",3)||0==strncmp(argv[i],"--disable-freq",14))
+            have_freq = 0;
+        if (0==strncmp(argv[i],"-rc",3)||0==strncmp(argv[i],"--info-rotate",13))
             submode = 0;
-        }
-
-        if(0==strncmp(argv[i],"-vc",3)||0==strncmp(argv[i],"--variable-cpu",14)) {
+        if (0==strncmp(argv[i],"-vc",3)||0==strncmp(argv[i],"--variable-cpu",14))
             variable_cpu = 1;
-        }
-        if(0==strncmp(argv[i],"-D",2)||0==strncmp(argv[i],"--debug",7)) {
+        if (0==strncmp(argv[i],"-D",2)||0==strncmp(argv[i],"--debug",7))
             debug_enabled = 1;
-        }
-        if(0==strncmp(argv[i],"--bar-background",16)) {
+        if (0==strncmp(argv[i],"--bar-background",16))
             bar_chart_background = 1;
-        }
-        if(0==strncmp(argv[i],"--temp-filter-bypass",20)) {
+        if (0==strncmp(argv[i],"--temp-filter-bypass",20))
             temp_filter_bypass = 1;
-        }
-        if(0==strncmp(argv[i],"--cpu2-bar-height",17)) {
-          if((i + 1) < argc) {
-            i++;
-            cpu2_bar_height = atoi(argv[i]);
-            if (cpu2_bar_height < 1) {
-                cpu2_bar_height = 1;
+        if (0==strncmp(argv[i],"--cpu2-bar-height",17)) {
+            if ((i + 1) < argc) {
+                i++;
+                cpu2_bar_height = atoi(argv[i]);
+                if (cpu2_bar_height < 1)
+                    cpu2_bar_height = 1;
+                if (cpu2_bar_height > (BAR_BOTTOM + 1))
+                    cpu2_bar_height = BAR_BOTTOM + 1;
             }
-            if (cpu2_bar_height > (BAR_BOTTOM + 1)) {
-                cpu2_bar_height = BAR_BOTTOM + 1;
-            }
-          }
         }
-        if(0==strncmp(argv[i],"--no-screen-overlay",19)) {
+        if (0==strncmp(argv[i],"--no-screen-overlay",19)) {
             show_screen_overlay = 0;
             overlay_ticks = 0;
         }
-
-        if(0==strncmp(argv[i],"-h",2)||0==strncmp(argv[i],"--help",6)) {
+        if (0==strncmp(argv[i],"-h",2)||0==strncmp(argv[i],"--help",6)) {
             printf("%s %s - (c) 2008-2010 Mike Lampard, Piotr Czarnecki; 2026 Torstein Eide\n",PACKAGE_NAME,VERSION);
             printf("Usage: %s [Options]\n", PACKAGE_NAME);
             printf("Options:\n");
@@ -4357,152 +4319,138 @@ int main(int argc, const char *argv[]){
             printf("--disable-freq (-df) disable monitoring CPUs frequencies.\n\n");
             printf("--output-file [path] (-o) write rendered LCD frames to [path] instead of sending to g15daemon\n");
             printf("Config file: %s (CLI options override file values).\n", get_config_file_path());
-            return 0;
+            return 1;
         }
-        if(0==strncmp(argv[i],"-i",2)||0==strncmp(argv[i],"--interface",11)) {
-          if((i + 1) < argc) {
-            have_nic=1;
-            i++;
-            strncpy((char*)interface,argv[i],127);
-            interface[127] = '\0';
-          }
-        }
-        if(0==strncmp(argv[i],"-t",2)||0==strncmp(argv[i],"--temperature",13)) {
-          if((i + 1) < argc) {
-            i++;
-            sensor_temp_id = atoi(argv[i]);
-            if (sensor_temp_id >= MAX_SENSOR) {
-                sensor_temp_id = 0;
+        if (0==strncmp(argv[i],"-i",2)||0==strncmp(argv[i],"--interface",11)) {
+            if ((i + 1) < argc) {
+                have_nic = 1;
+                i++;
+                strncpy((char*)interface, argv[i], interface_size - 1);
+                interface[interface_size - 1] = '\0';
             }
-            sensor_temp_forced = 1;
-          }
         }
-
-        if(0==strncmp(argv[i],"-gt",3)||0==strncmp(argv[i],"--global-temp",13)) {
-          if((i + 1) < argc) {
-            i++;
-            sensor_temp_main = atoi(argv[i]);
-          }
-        }
-
-        if(0==strncmp(argv[i],"-f",2)||0==strncmp(argv[i],"--fan",5)) {
-          if((i + 1) < argc) {
-            i++;
-            sensor_fan_id = atoi(argv[i]);
-            if (sensor_fan_id >= MAX_SENSOR) {
-                sensor_fan_id = 0;
+        if (0==strncmp(argv[i],"-t",2)||0==strncmp(argv[i],"--temperature",13)) {
+            if ((i + 1) < argc) {
+                i++;
+                sensor_temp_id = atoi(argv[i]);
+                if (sensor_temp_id >= MAX_SENSOR)
+                    sensor_temp_id = 0;
+                sensor_temp_forced = 1;
             }
-            sensor_fan_forced = 1;
-          }
         }
-
-        if(0==strncmp(argv[i],"-r",2)||0==strncmp(argv[i],"--refresh",9)) {
-          if((i + 1) < argc) {
-            i++;
-            wait_seconds = atoi(argv[i]);
-            if ((wait_seconds < 1) || (wait_seconds > MAX_INTERVAL)) {
-                wait_seconds = 1;
+        if (0==strncmp(argv[i],"-gt",3)||0==strncmp(argv[i],"--global-temp",13)) {
+            if ((i + 1) < argc) {
+                i++;
+                sensor_temp_main = atoi(argv[i]);
             }
-          }
         }
-        if(0==strncmp(argv[i],"-o",2)||0==strncmp(argv[i],"--output-file",13)) {
-          if((i + 1) < argc) {
-            i++;
-            strncpy(output_file_path, argv[i], sizeof(output_file_path)-1);
-            output_file_path[sizeof(output_file_path)-1] = '\0';
-          }
+        if (0==strncmp(argv[i],"-f",2)||0==strncmp(argv[i],"--fan",5)) {
+            if ((i + 1) < argc) {
+                i++;
+                sensor_fan_id = atoi(argv[i]);
+                if (sensor_fan_id >= MAX_SENSOR)
+                    sensor_fan_id = 0;
+                sensor_fan_forced = 1;
+            }
         }
-    }        
+        if (0==strncmp(argv[i],"-r",2)||0==strncmp(argv[i],"--refresh",9)) {
+            if ((i + 1) < argc) {
+                i++;
+                wait_seconds = atoi(argv[i]);
+                if ((wait_seconds < 1) || (wait_seconds > MAX_INTERVAL))
+                    wait_seconds = 1;
+            }
+        }
+        if (0==strncmp(argv[i],"-o",2)||0==strncmp(argv[i],"--output-file",13)) {
+            if ((i + 1) < argc) {
+                i++;
+                strncpy(output_file_path, argv[i], output_file_path_size - 1);
+                output_file_path[output_file_path_size - 1] = '\0';
+            }
+        }
+    }
+    return 0;
+}
 
+// Opens the display output.
+// Returns 1 for g15daemon screen output, 0 for file output, -1 on error.
+static int open_display(const char *output_file_path, FILE **output_file_out) {
     if (output_file_path[0] != '\0') {
-        output_file = fopen(output_file_path, "ab");
-        if (output_file == NULL) {
+        *output_file_out = fopen(output_file_path, "ab");
+        if (*output_file_out == NULL) {
             fprintf(stderr, "Sorry, cant open output file: %s\n", output_file_path);
             return -1;
         }
-        use_screen_output = 0;
-    } else {
-        if((g15screen_fd = new_g15_screen(G15_G15RBUF))<0){
-            printf("Sorry, cant connect to the G15daemon\n");
-            return -1;
-        }
+        return 0;
     }
-
-    canvas = (g15canvas *) malloc (sizeof (g15canvas));
-    if(go_daemon==1) 
-        daemonise(0,0);
-
-    if(canvas != NULL)
-        g15r_initCanvas(canvas);
-    else {
-        if (output_file != NULL) {
-            fclose(output_file);
-        }
+    if ((g15screen_fd = new_g15_screen(G15_G15RBUF)) < 0) {
+        printf("Sorry, cant connect to the G15daemon\n");
         return -1;
     }
+    return 1;
+}
+
+// Initialises glibtop, probes hardware, and starts background threads.
+static void init_hardware(unsigned char *interface, size_t interface_size,
+                          int use_screen_output,
+                          pthread_t *keys_thread, pthread_t *net_thread) {
+    int i;
 
     glibtop_init();
 
     if (!have_nic) {
-        if (auto_discover_nic(interface, sizeof(interface))) {
+        if (auto_discover_nic(interface, interface_size)) {
             have_nic = 1;
-            if (debug_enabled) {
+            if (debug_enabled)
                 fprintf(stderr, "[g15stats] auto-selected network interface: %s\n", interface);
-            }
         }
     }
 
     have_gpu = probe_nvidia_gpu();
-    if (!have_gpu && debug_enabled) {
+    if (!have_gpu && debug_enabled)
         fprintf(stderr, "[g15stats] nvidia-smi unavailable or no NVIDIA GPU detected; GPU screen disabled\n");
-    }
 
     have_mem_pressure = update_memory_pressure_stats();
-    if (!have_mem_pressure && debug_enabled) {
+    if (!have_mem_pressure && debug_enabled)
         fprintf(stderr, "[g15stats] memory pressure metrics unavailable; MEM PRESSURE screen disabled\n");
-    }
 
-    if (use_screen_output == 1) {
-        pthread_create(&keys_thread,NULL,(void*)keyboard_watch,NULL);
-    }
-  
-    if(have_nic==1)
-      pthread_create(&net_thread,NULL,(void*)network_watch,&interface);
+    if (use_screen_output == 1)
+        pthread_create(keys_thread, NULL, (void*)keyboard_watch, NULL);
 
-    forced_screen = get_forced_screen();
-    forced_mode = get_forced_mode();
+    if (have_nic == 1)
+        pthread_create(net_thread, NULL, (void*)network_watch, interface);
 
-    for (i=0;i<MAX_SENSOR;i++) {
+    for (i = 0; i < MAX_SENSOR; i++) {
         sensor_lost_fan[i] = 1;
         sensor_lost_temp[i] = 1;
     }
 
     auto_select_sensor(SCREEN_TEMP);
     auto_select_sensor(SCREEN_FAN);
+}
 
-    signal(SIGINT, handle_signal);
-    signal(SIGTERM, handle_signal);
+// Main render loop. Runs until keep_running is cleared by a signal.
+static void run_loop(g15canvas *canvas, char *tmpstr, int unicore,
+                     unsigned char *interface, int use_screen_output,
+                     FILE *output_file) {
+    int forced_screen = get_forced_screen();
+    int forced_mode   = get_forced_mode();
+    int cycle_old     = cycle;
 
-    int cycle_old   = cycle;
     if (debug_enabled) {
         fprintf(stderr,
                 "[g15stats] current screen: %d (%s), mode=%d, submode=%d\n",
-                cycle,
-                screen_name(cycle),
-                mode[cycle],
-                submode);
+                cycle, screen_name(cycle), mode[cycle], submode);
     }
-    while(keep_running) {
-        if (forced_screen >= SCREEN_SUMMARY) {
-            cycle = forced_screen;
-        }
-        if (forced_mode >= 0) {
-            mode[cycle] = forced_mode;
-        }
 
-        if (cycle != SCREEN_CPU2) {
+    while (keep_running) {
+        if (forced_screen >= SCREEN_SUMMARY)
+            cycle = forced_screen;
+        if (forced_mode >= 0)
+            mode[cycle] = forced_mode;
+
+        if (cycle != SCREEN_CPU2)
             cpu2_debug_logged = 0;
-        }
 
         calc_info_cycle();
         switch (cycle) {
@@ -4544,18 +4492,15 @@ int main(int argc, const char *argv[]){
             default:
                 draw_cpu_screen_multicore(canvas, tmpstr, unicore);
                 cycle = 0;
-                info_cycle  = cycle;
+                info_cycle = cycle;
                 break;
         }
         if (debug_enabled && cycle_old != cycle) {
             fprintf(stderr,
                     "[g15stats] current screen: %d (%s), mode=%d, submode=%d\n",
-                    cycle,
-                    screen_name(cycle),
-                    mode[cycle],
-                    submode);
+                    cycle, screen_name(cycle), mode[cycle], submode);
         }
-        cycle_old   = cycle;
+        cycle_old = cycle;
         print_info_label(canvas, tmpstr);
         draw_screen_overlay(canvas, tmpstr);
         draw_mode_overlay(canvas, tmpstr);
@@ -4563,20 +4508,68 @@ int main(int argc, const char *argv[]){
         canvas->mode_xor = 0;
 
         if (use_screen_output == 1) {
-            g15_send(g15screen_fd,(char *)canvas->buffer,G15_BUFFER_LEN);
+            g15_send(g15screen_fd, (char *)canvas->buffer, G15_BUFFER_LEN);
         } else {
             fwrite((char *)canvas->buffer, 1, G15_BUFFER_LEN, output_file);
             fflush(output_file);
         }
         g15stats_wait(wait_seconds);
     }
-    glibtop_close();
+}
 
+int main(int argc, const char *argv[]) {
+    g15canvas *canvas;
+    pthread_t keys_thread;
+    pthread_t net_thread;
+    int go_daemon = 0;
+    unsigned char interface[128] = {0};
+    char output_file_path[512] = {0};
+    FILE *output_file = NULL;
+    int use_screen_output;
+    static char tmpstr[MAX_LINES];
+    int unicore = 0;
+
+    load_config_file(&go_daemon, &unicore, interface, &have_nic,
+                     output_file_path, sizeof(output_file_path));
+    init_cpu_vendor_flags();
+    init_battery_sensor();
+
+    if (parse_args(argc, argv,
+                   interface, sizeof(interface),
+                   output_file_path, sizeof(output_file_path),
+                   &go_daemon, &unicore))
+        return 0;
+
+    use_screen_output = open_display(output_file_path, &output_file);
+    if (use_screen_output < 0)
+        return -1;
+
+    canvas = (g15canvas *) malloc(sizeof(g15canvas));
+    if (go_daemon == 1)
+        daemonise(0, 0);
+
+    if (canvas != NULL) {
+        g15r_initCanvas(canvas);
+    } else {
+        if (output_file != NULL)
+            fclose(output_file);
+        return -1;
+    }
+
+    init_hardware(interface, sizeof(interface), use_screen_output,
+                  &keys_thread, &net_thread);
+
+    signal(SIGINT, handle_signal);
+    signal(SIGTERM, handle_signal);
+
+    run_loop(canvas, tmpstr, unicore, interface, use_screen_output, output_file);
+
+    glibtop_close();
     if (use_screen_output == 1) {
         close(g15screen_fd);
     } else {
         fclose(output_file);
     }
     free(canvas);
-    return 0;  
+    return 0;
 }
