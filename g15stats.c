@@ -50,6 +50,7 @@ This is a simple stats client showing graphs for CPU, MEM & Swap usage, Network 
 #include <time.h>
 #include <math.h>
 #include <pthread.h>
+#include <signal.h>
 #include <glibtop.h>
 #include <glibtop/cpu.h>
 #include <glibtop/mem.h>
@@ -63,6 +64,13 @@ This is a simple stats client showing graphs for CPU, MEM & Swap usage, Network 
 #include "g15stats.h"
 
 int g15screen_fd;
+
+static volatile sig_atomic_t keep_running = 1;
+
+static void handle_signal(int sig) {
+    (void)sig;
+    keep_running = 0;
+}
 
 int cycle       = 0;
 int info_cycle  = 0;
@@ -3971,6 +3979,9 @@ void keyboard_watch(void) {
                                 sensor_fan_id = 0;
                             }
                             break;
+                        case SCREEN_CPU2:
+                            if (mode[cycle] > 1) mode[cycle] = 0;
+                            break;
                         case    SCREEN_SWAP:
                         case    SCREEN_MEM:
                         case    SCREEN_BAT:
@@ -4435,6 +4446,9 @@ int main(int argc, const char *argv[]){
     auto_select_sensor(SCREEN_TEMP);
     auto_select_sensor(SCREEN_FAN);
 
+    signal(SIGINT, handle_signal);
+    signal(SIGTERM, handle_signal);
+
     int cycle_old   = cycle;
     if (debug_enabled) {
         fprintf(stderr,
@@ -4444,7 +4458,7 @@ int main(int argc, const char *argv[]){
                 mode[cycle],
                 submode);
     }
-    while(1) {
+    while(keep_running) {
         if (forced_screen >= SCREEN_SUMMARY) {
             cycle = forced_screen;
         }
