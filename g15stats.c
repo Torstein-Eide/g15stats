@@ -4448,27 +4448,36 @@ int main(int argc, const char *argv[]){
             case SCREEN_TEMP:
             case SCREEN_FAN:
             case SCREEN_GPU:
-            case SCREEN_MEM_PRESSURE:
-                if ((cycle_old != cycle) && ((!cycle_old) ^ (cycle_old < cycle))) {
+            case SCREEN_MEM_PRESSURE: {
+                /* When the target screen just changed and the new target is a
+                 * higher-numbered screen than the old one (navigating forward),
+                 * scan downward through the chain to find the nearest available
+                 * screen at or below the target.  Otherwise scan upward.
+                 * draw_bat_screen / draw_g15_stats_info_screen may disable a
+                 * feature flag mid-call, so the inner have_* re-checks are
+                 * intentional for bat/temp/fan. */
+                int scan_down = (cycle_old != cycle) &&
+                                (cycle_old != 0) &&
+                                (cycle_old < cycle);
+
+                if (scan_down) {
                     switch (cycle) {
                         case SCREEN_MEM_PRESSURE:
                             if (have_mem_pressure) {
                                 draw_mem_pressure_screen(canvas, tmpstr);
-                                if (have_mem_pressure) {
-                                    break;
-                                }
+                                break;
                             }
                             cycle--;
                             info_cycle = cycle;
+                            /* fallthrough */
                         case SCREEN_GPU:
                             if (have_gpu) {
                                 draw_gpu_screen(canvas, tmpstr);
-                                if (have_gpu) {
-                                    break;
-                                }
+                                break;
                             }
                             cycle--;
                             info_cycle = cycle;
+                            /* fallthrough */
                         case SCREEN_FAN:
                             if (have_fan) {
                                 draw_g15_stats_info_screen(canvas, tmpstr, 1, SCREEN_FAN);
@@ -4477,7 +4486,8 @@ int main(int argc, const char *argv[]){
                                 }
                             }
                             cycle--;
-                            info_cycle  = cycle;
+                            info_cycle = cycle;
+                            /* fallthrough */
                         case SCREEN_TEMP:
                             if (have_temp) {
                                 draw_g15_stats_info_screen(canvas, tmpstr, 1, SCREEN_TEMP);
@@ -4486,7 +4496,8 @@ int main(int argc, const char *argv[]){
                                 }
                             }
                             cycle--;
-                            info_cycle  = cycle;
+                            info_cycle = cycle;
+                            /* fallthrough */
                         case SCREEN_BAT:
                             if (have_bat) {
                                 draw_bat_screen(canvas, tmpstr, 1);
@@ -4495,17 +4506,17 @@ int main(int argc, const char *argv[]){
                                 }
                             }
                             cycle--;
-                            info_cycle  = cycle;
+                            info_cycle = cycle;
+                            /* fallthrough */
                         case SCREEN_NET:
                         case SCREEN_NET2:
                             if (have_nic) {
                                 draw_net_screen(canvas, tmpstr, (char*) interface);
-                                if (have_nic) {
-                                    break;
-                                }
+                                break;
                             }
                             cycle--;
-                            info_cycle  = cycle;
+                            info_cycle = cycle;
+                            /* fallthrough */
                         case SCREEN_SWAP:
                             draw_swap_screen(canvas, tmpstr);
                             break;
@@ -4519,7 +4530,8 @@ int main(int argc, const char *argv[]){
                                 break;
                             }
                             cycle++;
-                            info_cycle  = cycle;
+                            info_cycle = cycle;
+                            /* fallthrough */
                         case SCREEN_BAT:
                             if (have_bat) {
                                 draw_bat_screen(canvas, tmpstr, 1);
@@ -4528,7 +4540,8 @@ int main(int argc, const char *argv[]){
                                 }
                             }
                             cycle++;
-                            info_cycle  = cycle;
+                            info_cycle = cycle;
+                            /* fallthrough */
                         case SCREEN_TEMP:
                             if (have_temp) {
                                 draw_g15_stats_info_screen(canvas, tmpstr, 1, SCREEN_TEMP);
@@ -4537,7 +4550,8 @@ int main(int argc, const char *argv[]){
                                 }
                             }
                             cycle++;
-                            info_cycle  = cycle;
+                            info_cycle = cycle;
+                            /* fallthrough */
                         case SCREEN_FAN:
                             if (have_fan) {
                                 draw_g15_stats_info_screen(canvas, tmpstr, 1, SCREEN_FAN);
@@ -4546,30 +4560,34 @@ int main(int argc, const char *argv[]){
                                 }
                             }
                             cycle++;
-                            info_cycle  = cycle;
+                            info_cycle = cycle;
+                            /* fallthrough */
                         case SCREEN_GPU:
                             if (have_gpu) {
                                 draw_gpu_screen(canvas, tmpstr);
-                                if (have_gpu) {
-                                    break;
-                                }
+                                break;
                             }
                             cycle++;
                             info_cycle = cycle;
+                            /* fallthrough */
                         case SCREEN_MEM_PRESSURE:
                             if (have_mem_pressure) {
                                 draw_mem_pressure_screen(canvas, tmpstr);
-                                if (have_mem_pressure) {
-                                    break;
-                                }
+                                break;
                             }
                             cycle++;
                             info_cycle = cycle;
                     }
                 }
-                if (cycle <= MAX_SCREENS) {
-                    break;
+
+                if (cycle > MAX_SCREENS) {
+                    /* All optional screens exhausted; reset to summary. */
+                    draw_cpu_screen_multicore(canvas, tmpstr, unicore);
+                    cycle = 0;
+                    info_cycle = cycle;
                 }
+                break;
+            }
             default:
                 draw_cpu_screen_multicore(canvas, tmpstr, unicore);
                 cycle = 0;
