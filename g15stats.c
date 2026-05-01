@@ -826,6 +826,23 @@ char * show_hertz(int hertz) {
     return show_hertz_logic(hertz, "Hz");
 }
 
+static void render_info_text(g15canvas *canvas, const char *text) {
+    g15r_renderString(canvas, (unsigned char*)text, 0, G15_TEXT_SMALL,
+                      80 - ((int)strlen(text) * 4) / 2, INFO_ROW);
+}
+
+static void render_right_xor(g15canvas *canvas, const char *text, int bar_end, int y) {
+    int text_x = G15_LCD_WIDTH - ((int)strlen(text) * 6) - 1;
+    if (text_x < BAR_START) {
+        text_x = BAR_START;
+    }
+    if (bar_end >= text_x) {
+        canvas->mode_xor = 1;
+    }
+    g15r_renderString(canvas, (unsigned char*)text, 0, G15_TEXT_MED, text_x, y);
+    canvas->mode_xor = 0;
+}
+
 void print_vert_label_logic(g15canvas *canvas, const char *label, unsigned int sx){
     int i;
     int len = strlen(label);
@@ -1799,7 +1816,7 @@ void print_sys_load_info(g15canvas *canvas, char *tmpstr) {
         hours=(int)hours-(days*24);
 
     sprintf(tmpstr,"LoadAVG %.2f %.2f %.2f | Uptime %.fd%.fh",loadavg.loadavg[0],loadavg.loadavg[1],loadavg.loadavg[2],days,hours);
-    g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80-(strlen(tmpstr)*4)/2, INFO_ROW);
+    render_info_text(canvas, tmpstr);
 }
 
 void print_mem_info(g15canvas *canvas, char *tmpstr) {
@@ -1807,7 +1824,7 @@ void print_mem_info(g15canvas *canvas, char *tmpstr) {
     glibtop_get_mem(&mem);
 
     sprintf(tmpstr,"Memory Used %uMB | Memory Total %uMB",(unsigned int)((mem.buffer+mem.cached+mem.user)/(1024*1024)),(unsigned int)(mem.total/(1024*1024)));
-    g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80-(strlen(tmpstr)*4)/2, INFO_ROW);
+    render_info_text(canvas, tmpstr);
 }
 
 void print_swap_info(g15canvas *canvas, char *tmpstr) {
@@ -1815,19 +1832,19 @@ void print_swap_info(g15canvas *canvas, char *tmpstr) {
     glibtop_get_swap(&swap);
 
     sprintf(tmpstr,"Swap Used %uMB | Swap Avail. %uMB",(unsigned int)(swap.used/(1024*1024)),(unsigned int)(swap.total/(1024*1024)));
-    g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80-(strlen(tmpstr)*4)/2, INFO_ROW);
+    render_info_text(canvas, tmpstr);
 }
 
 void print_net_peak_info(g15canvas *canvas, char *tmpstr) {
     snprintf(tmpstr, MAX_LINES, "Peak IN %s/s|", show_bytes(net_max_in));
     append_textf(tmpstr, MAX_LINES, "Peak OUT %s/s", show_bytes(net_max_out));
-    g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80-(strlen(tmpstr)*4)/2, INFO_ROW);
+    render_info_text(canvas, tmpstr);
 }
 
 void print_net_current_info(g15canvas *canvas, char *tmpstr) {
     snprintf(tmpstr, MAX_LINES, "Current IN %s/s|", show_bytes(net_cur_in));
     append_textf(tmpstr, MAX_LINES, "Current OUT %s/s", show_bytes(net_cur_out));
-    g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80-(strlen(tmpstr)*4)/2, INFO_ROW);
+    render_info_text(canvas, tmpstr);
 }
 
 void print_freq_info(g15canvas *canvas, char *tmpstr) {
@@ -1873,7 +1890,7 @@ void print_freq_info(g15canvas *canvas, char *tmpstr) {
         }
     }
 
-    g15r_renderString(canvas, (unsigned char*) tmpstr, 0, G15_TEXT_SMALL, 80 - (strlen(tmpstr)*4) / 2, INFO_ROW);
+    render_info_text(canvas, tmpstr);
 }
 
 void draw_gpu_screen(g15canvas *canvas, char *tmpstr) {
@@ -1893,28 +1910,11 @@ void draw_gpu_screen(g15canvas *canvas, char *tmpstr) {
     if (gpu_mem_total > 0) {
         mem_pct = (gpu_mem_used * 100) / gpu_mem_total;
     }
-    if (mem_pct < 0) {
-        mem_pct = 0;
-    }
-    if (mem_pct > 100) {
-        mem_pct = 100;
-    }
-
-    if (gpu_util_cur < 0) {
-        gpu_util_cur = 0;
-    }
-    if (gpu_util_cur > 100) {
-        gpu_util_cur = 100;
-    }
+    mem_pct = clamp_int(mem_pct, 0, 100);
+    gpu_util_cur = clamp_int(gpu_util_cur, 0, 100);
 
     gpu_hist[gpu_rr_index] = (unsigned int) gpu_util_cur;
-    gpu_rr_index++;
-    if (gpu_rr_index >= MAX_GPU_HIST) {
-        gpu_rr_index = 0;
-    }
-    if (gpu_hist_count < MAX_GPU_HIST) {
-        gpu_hist_count++;
-    }
+    circ_buf_advance(gpu_rr_index, gpu_hist_count, MAX_GPU_HIST);
 
     plot_mode = (mode[SCREEN_GPU] >= 2);
 
@@ -1941,18 +1941,9 @@ void draw_gpu_screen(g15canvas *canvas, char *tmpstr) {
                 int x = start_x + i;
                 int y;
 
-                if (value < 0) {
-                    value = 0;
-                }
-                if (value > 100) {
-                    value = 100;
-                }
-
+                value = clamp_int(value, 0, 100);
                 avg += value;
-                y = 31 - ((value * 28) / 100);
-                if (y < 3) {
-                    y = 3;
-                }
+                y = clamp_int(31 - ((value * 28) / 100), 3, 31);
 
                 g15r_setPixel(canvas, x, y, G15_COLOR_BLACK);
                 if (i > 0) {
@@ -1964,7 +1955,7 @@ void draw_gpu_screen(g15canvas *canvas, char *tmpstr) {
 
             avg /= gpu_hist_count;
             snprintf(tmpstr, MAX_LINES, "Now %d%% | Avg %d%%", gpu_util_cur, avg);
-            g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80 - (strlen(tmpstr) * 4) / 2, INFO_ROW);
+            render_info_text(canvas, tmpstr);
         }
         return;
     }
@@ -1979,35 +1970,14 @@ void draw_gpu_screen(g15canvas *canvas, char *tmpstr) {
         }
 
         if (gpu_power_cur_mw >= 0) {
-            int power_text_x;
-            int overlap = 0;
-
             if (gpu_power_limit_mw > 0) {
-                snprintf(tmpstr,
-                         MAX_LINES,
-                         "%.1f/%.1fW",
+                snprintf(tmpstr, MAX_LINES, "%.1f/%.1fW",
                          ((float) gpu_power_cur_mw) / 1000.0f,
                          ((float) gpu_power_limit_mw) / 1000.0f);
             } else {
                 snprintf(tmpstr, MAX_LINES, "%.1fW", ((float) gpu_power_cur_mw) / 1000.0f);
             }
-
-            power_text_x = G15_LCD_WIDTH - ((int) strlen(tmpstr) * 6) - 1;
-            if (power_text_x < BAR_START) {
-                power_text_x = BAR_START;
-            }
-
-            if (gpu_bar_end >= power_text_x) {
-                overlap = 1;
-            }
-
-            if (overlap) {
-                canvas->mode_xor = 1;
-            }
-            g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, power_text_x, 4);
-            if (overlap) {
-                canvas->mode_xor = 0;
-            }
+            render_right_xor(canvas, tmpstr, gpu_bar_end, 4);
         }
 
         snprintf(tmpstr, MAX_LINES, "VRAM%3d%%", mem_pct);
@@ -2021,26 +1991,7 @@ void draw_gpu_screen(g15canvas *canvas, char *tmpstr) {
         drawLine_both(canvas, 3, 26);
 
         snprintf(tmpstr, MAX_LINES, "%d/%d MB", gpu_mem_used, gpu_mem_total);
-        {
-            int mem_text_x = G15_LCD_WIDTH - ((int) strlen(tmpstr) * 6) - 1;
-            int overlap = 0;
-
-            if (mem_text_x < BAR_START) {
-                mem_text_x = BAR_START;
-            }
-
-            if (mem_bar_end >= mem_text_x) {
-                overlap = 1;
-            }
-
-            if (overlap) {
-                canvas->mode_xor = 1;
-            }
-            g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, mem_text_x, 18);
-            if (overlap) {
-                canvas->mode_xor = 0;
-            }
-        }
+        render_right_xor(canvas, tmpstr, mem_bar_end, 18);
     } else {
         snprintf(tmpstr, MAX_LINES, "GPU  %d%%", gpu_util_cur);
         g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_LARGE, 4, 2);
@@ -2078,28 +2029,12 @@ void draw_mem_pressure_screen(g15canvas *canvas, char *tmpstr) {
     some10_permille = (int) (mem_pressure_some_avg10 * 10.0 + 0.5);
     full10_permille = (int) (mem_pressure_full_avg10 * 10.0 + 0.5);
 
-    if (some10_permille < 0) {
-        some10_permille = 0;
-    }
-    if (some10_permille > 1000) {
-        some10_permille = 1000;
-    }
-    if (full10_permille < 0) {
-        full10_permille = 0;
-    }
-    if (full10_permille > 1000) {
-        full10_permille = 1000;
-    }
+    some10_permille = clamp_int(some10_permille, 0, 1000);
+    full10_permille = clamp_int(full10_permille, 0, 1000);
 
     mem_pressure_some_hist[mem_pressure_rr_index] = (unsigned int) some10_permille;
     mem_pressure_full_hist[mem_pressure_rr_index] = (unsigned int) full10_permille;
-    mem_pressure_rr_index++;
-    if (mem_pressure_rr_index >= MAX_GPU_HIST) {
-        mem_pressure_rr_index = 0;
-    }
-    if (mem_pressure_hist_count < MAX_GPU_HIST) {
-        mem_pressure_hist_count++;
-    }
+    circ_buf_advance(mem_pressure_rr_index, mem_pressure_hist_count, MAX_GPU_HIST);
 
     history_mode = (mode[SCREEN_MEM_PRESSURE] >= 2);
 
@@ -2136,30 +2071,12 @@ void draw_mem_pressure_screen(g15canvas *canvas, char *tmpstr) {
                 int some_y;
                 int full_y;
 
-                if (some_value < 0) {
-                    some_value = 0;
-                }
-                if (some_value > 1000) {
-                    some_value = 1000;
-                }
-                if (full_value < 0) {
-                    full_value = 0;
-                }
-                if (full_value > 1000) {
-                    full_value = 1000;
-                }
-
+                some_value = clamp_int(some_value, 0, 1000);
+                full_value = clamp_int(full_value, 0, 1000);
                 some_avg_permille += some_value;
                 full_avg_permille += full_value;
-
-                some_y = 31 - ((some_value * 28) / 1000);
-                full_y = 31 - ((full_value * 28) / 1000);
-                if (some_y < 3) {
-                    some_y = 3;
-                }
-                if (full_y < 3) {
-                    full_y = 3;
-                }
+                some_y = clamp_int(31 - ((some_value * 28) / 1000), 3, 31);
+                full_y = clamp_int(31 - ((full_value * 28) / 1000), 3, 31);
 
                 g15r_setPixel(canvas, x, some_y, G15_COLOR_BLACK);
                 if (i > 0) {
@@ -2186,7 +2103,7 @@ void draw_mem_pressure_screen(g15canvas *canvas, char *tmpstr) {
                      ((float) some_avg_permille) / 10.0f,
                      ((float) full10_permille) / 10.0f,
                      ((float) full_avg_permille) / 10.0f);
-            g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80 - (strlen(tmpstr) * 4) / 2, INFO_ROW);
+            render_info_text(canvas, tmpstr);
         }
 
         return;
@@ -2210,7 +2127,7 @@ void draw_mem_pressure_screen(g15canvas *canvas, char *tmpstr) {
                  mem_pressure_some_avg300,
                  mem_pressure_full_avg60,
                  mem_pressure_full_avg300);
-        g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80 - (strlen(tmpstr) * 4) / 2, INFO_ROW);
+        render_info_text(canvas, tmpstr);
     } else {
         snprintf(tmpstr, MAX_LINES, "SOME avg10  %4.1f%%", mem_pressure_some_avg10);
         g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 2, 3);
@@ -2221,7 +2138,7 @@ void draw_mem_pressure_screen(g15canvas *canvas, char *tmpstr) {
 
         if (mode[SCREEN_MEM_PRESSURE] >= 2) {
             snprintf(tmpstr, MAX_LINES, "FULL10 %.1f|60 %.1f|300 %.1f", mem_pressure_full_avg10, mem_pressure_full_avg60, mem_pressure_full_avg300);
-            g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80 - (strlen(tmpstr) * 4) / 2, INFO_ROW);
+            render_info_text(canvas, tmpstr);
         } else {
             snprintf(tmpstr, MAX_LINES, "FULL avg10 %.1f%%", mem_pressure_full_avg10);
             g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 2, 30);
@@ -2235,7 +2152,7 @@ void print_time_info(g15canvas *canvas, char *tmpstr){
 
     sprintf(tmpstr,"%s",ctime(&now));
     tmpstr[(strlen(tmpstr) - 1)] = '\0';
-    g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80-(strlen(tmpstr)*4)/2, INFO_ROW);
+    render_info_text(canvas, tmpstr);
 }
 
 void draw_mem_screen(g15canvas *canvas, char *tmpstr) {
@@ -3666,7 +3583,7 @@ void draw_bat_screen(g15canvas *canvas, char *tmpstr, int all) {
                     append_text(tmpstr, MAX_LINES, extension);
             }
 
-            g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80-(strlen(tmpstr)*4)/2, INFO_ROW);
+            render_info_text(canvas, tmpstr);
         }
 }
 
@@ -3731,7 +3648,7 @@ void draw_g15_stats_info_screen_logic(g15canvas *canvas, char *tmpstr, int all, 
             }
             append_text(tmpstr, MAX_LINES, extension);
         }
-        g15r_renderString(canvas, (unsigned char*) tmpstr, 0, G15_TEXT_SMALL, 80 - (strlen(tmpstr)*4) / 2, INFO_ROW);
+        render_info_text(canvas, tmpstr);
     }
 }
 
@@ -3768,7 +3685,7 @@ void draw_g15_stats_info_screen(g15canvas *canvas, char *tmpstr, int all, int sc
                 }
                 if ((!all) || (info_cycle == SCREEN_FAN)) {
                     snprintf(tmpstr, MAX_LINES, "Fan sensor missing");
-                    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80 - (strlen(tmpstr) * 4) / 2, INFO_ROW);
+                    render_info_text(canvas, tmpstr);
                 }
                 break;
             }
@@ -3926,7 +3843,7 @@ void print_info_label(g15canvas *canvas, char *tmpstr) {
                 }
                 snprintf(tmpstr, MAX_LINES, "GPU %d%%|VRAM %d%%|TEMP %dC", gpu_util_cur, mem_pct, gpu_temp_cur);
             }
-            g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80 - (strlen(tmpstr) * 4) / 2, INFO_ROW);
+            render_info_text(canvas, tmpstr);
             break;
         case SCREEN_MEM_PRESSURE:
             if (!update_memory_pressure_stats()) {
@@ -3942,7 +3859,7 @@ void print_info_label(g15canvas *canvas, char *tmpstr) {
                          mem_pressure_full_avg60,
                          mem_pressure_full_avg300);
             }
-            g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_SMALL, 80 - (strlen(tmpstr) * 4) / 2, INFO_ROW);
+            render_info_text(canvas, tmpstr);
             break;
     }
 }

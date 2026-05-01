@@ -30,6 +30,12 @@
 
 #define SENSOR_ERROR    -100
 
+#define clamp_int(v, lo, hi) ((v) < (lo) ? (lo) : (v) > (hi) ? (hi) : (v))
+
+#define circ_buf_advance(idx, count, max) \
+    do { (idx) = ((idx) + 1 >= (max)) ? 0 : (idx) + 1; \
+         if ((count) < (max)) { (count)++; } } while (0)
+
 #define CHANGE_DOWN     1
 #define CHANGE_UP       2
 #define CHANGE_MODE     3
