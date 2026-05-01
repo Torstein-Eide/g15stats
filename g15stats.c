@@ -2432,6 +2432,16 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
 
     }
 }
+static void render_cpu_usage_labels(g15canvas *canvas, char *tmpstr,
+                                    int user, int sys, int nice, int total) {
+    snprintf(tmpstr, MAX_LINES, "Usr %4.1f%%", ((float) user  * 100.0f) / (float) total);
+    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 2);
+    snprintf(tmpstr, MAX_LINES, "Sys %4.1f%%", ((float) sys   * 100.0f) / (float) total);
+    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 14);
+    snprintf(tmpstr, MAX_LINES, "Nce %4.1f%%", ((float) nice  * 100.0f) / (float) total);
+    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 26);
+}
+
 /* draw cpu screen.  if drawgraph = 0 then no graph is drawn */
 void draw_cpu_screen_unicore_logic(g15canvas *canvas, glibtop_cpu cpu, char *tmpstr, int drawgraph, int printlabels, int cpuandmemory) {
     int total,user,nice,sys,idle;
@@ -2463,12 +2473,7 @@ void draw_cpu_screen_unicore_logic(g15canvas *canvas, glibtop_cpu cpu, char *tmp
     }
 
     if(printlabels) {
-        sprintf(tmpstr,"Usr %2.f%%",((float)b_user/(float)b_total)*100);
-        g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 2);
-        sprintf(tmpstr,"Sys %2.f%%",((float)b_sys/(float)b_total)*100);
-        g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 14);
-        sprintf(tmpstr,"Nce %2.f%%",((float)b_nice/(float)b_total)*100);
-        g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 26);
+        render_cpu_usage_labels(canvas, tmpstr, b_user, b_sys, b_nice, b_total);
     }
     if(drawgraph) {
         g15r_drawBar(canvas,BAR_START,1,BAR_END,10,G15_COLOR_BLACK,b_user+1,b_total,4);
@@ -2797,12 +2802,7 @@ void draw_cpu_screen_load2(g15canvas *canvas, glibtop_cpu cpu, char *tmpstr) {
         total_total = 1;
     }
 
-    snprintf(tmpstr, MAX_LINES, "Usr %4.1f%%", ((float) total_user * 100.0f) / (float) total_total);
-    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 2);
-    snprintf(tmpstr, MAX_LINES, "Sys %4.1f%%", ((float) total_sys * 100.0f) / (float) total_total);
-    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 14);
-    snprintf(tmpstr, MAX_LINES, "Nce %4.1f%%", ((float) total_nice * 100.0f) / (float) total_total);
-    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 26);
+    render_cpu_usage_labels(canvas, tmpstr, total_user, total_sys, total_nice, total_total);
 
     for (line = 0; line < line_count; line++) {
         int start_core = (line * ncpu) / line_count;
@@ -2989,12 +2989,7 @@ void draw_cpu_screen_vertical(g15canvas *canvas, glibtop_cpu cpu, char *tmpstr) 
         total_total = 1;
     }
 
-    snprintf(tmpstr, MAX_LINES, "Usr %4.1f%%", ((float) total_user * 100.0f) / (float) total_total);
-    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 2);
-    snprintf(tmpstr, MAX_LINES, "Sys %4.1f%%", ((float) total_sys * 100.0f) / (float) total_total);
-    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 14);
-    snprintf(tmpstr, MAX_LINES, "Nce %4.1f%%", ((float) total_nice * 100.0f) / (float) total_total);
-    g15r_renderString(canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 26);
+    render_cpu_usage_labels(canvas, tmpstr, total_user, total_sys, total_nice, total_total);
 
     if (max_groups < 1) {
         max_groups = 1;
@@ -3358,68 +3353,49 @@ static void draw_net_tiered_bar(g15canvas *canvas, int y1, int y2, unsigned long
 
 /* --- Network, battery, temperature, and fan screens --- */
 
-void draw_net_screen(g15canvas *canvas, char *tmpstr, char *interface) {
+// Draws one IN or OUT stream graph from the circular history buffer.
+// stream_idx: 0=IN, 1=OUT. baseline: y-origin for this stream. net_max: peak bytes/s.
+static void draw_net_stream(g15canvas *canvas, int stream_idx, float baseline,
+                             unsigned long net_max) {
+    float height = 0.0f;
+    float last   = 0.0f;
+    float diff;
+    int x = 53;
     int i;
-    int x=0;
 
-    float diff=0;
-    float height=0;
-    float last=0;
+    for (i = net_rr_index + 1; i < MAX_NET_HIST; i++) {
+        if (net_scale_absolute == 2)
+            height = tiered_graph_height(net_hist[i][stream_idx], baseline, 16.0f);
+        else {
+            diff   = (float) net_max / (float) net_hist[i][stream_idx];
+            height = baseline - (16.0f / diff);
+        }
+        g15r_setPixel(canvas, x, (int)height, G15_COLOR_BLACK);
+        g15r_drawLine(canvas, x, (int)height, x - 1, (int)last, G15_COLOR_BLACK);
+        last = height;
+        x++;
+    }
+    for (i = 0; i < net_rr_index; i++) {
+        if (net_scale_absolute == 2)
+            height = tiered_graph_height(net_hist[i][stream_idx], baseline, 16.0f);
+        else {
+            diff   = (float) net_max / (float) net_hist[i][stream_idx];
+            height = baseline - (16.0f / diff);
+        }
+        g15r_drawLine(canvas, x, (int)height, x - 1, (int)last, G15_COLOR_BLACK);
+        last = height;
+        x++;
+    }
+}
+
+void draw_net_screen(g15canvas *canvas, char *tmpstr, char *interface) {
+    int x;
 
     g15r_clearScreen (canvas, G15_COLOR_WHITE);
     glibtop_netload netload;
     glibtop_get_netload(&netload,interface);    
-    // in
-    x=53;
-    for(i=net_rr_index+1;i<MAX_NET_HIST;i++) {
-      if (net_scale_absolute == 2)
-        height = tiered_graph_height(net_hist[i][0], 16.0f, 16.0f);
-      else {
-        diff = (float) net_max_in / (float) net_hist[i][0];
-        height = 16-(16/diff);
-      }
-      g15r_setPixel(canvas,x,(int)height,G15_COLOR_BLACK);
-      g15r_drawLine(canvas,x,(int)height,x-1,(int)last,G15_COLOR_BLACK);
-      last=height;
-      x++;
-    }
-    for(i=0;i<net_rr_index;i++) {
-      if (net_scale_absolute == 2)
-        height = tiered_graph_height(net_hist[i][0], 16.0f, 16.0f);
-      else {
-        diff = (float) net_max_in / (float) net_hist[i][0];
-        height = 16-(16 / diff);
-      }
-      g15r_drawLine(canvas,x,(int)height,x-1,(int)last,G15_COLOR_BLACK);
-      last=height;
-      x++;
-    }
-    // out
-    x=53;
-    last=0;
-    for(i=net_rr_index+1;i<MAX_NET_HIST;i++) {
-      if (net_scale_absolute == 2)
-        height = tiered_graph_height(net_hist[i][1], 34.0f, 16.0f);
-      else {
-        diff = (float) net_max_out / (float) net_hist[i][1];
-        height = 34-(16/diff);
-      }
-      g15r_setPixel(canvas,x,(int)height,G15_COLOR_BLACK);
-      g15r_drawLine(canvas,x,(int)height,x-1,(int)last,G15_COLOR_BLACK);
-      last=height;
-      x++;
-    }
-    for(i=0;i<net_rr_index;i++) {
-      if (net_scale_absolute == 2)
-        height = tiered_graph_height(net_hist[i][1], 34.0f, 16.0f);
-      else {
-        diff = (float) net_max_out / (float) net_hist[i][1];
-        height = 34-(16 / diff);
-      }
-      g15r_drawLine(canvas,x,(int)height,x-1,(int)last,G15_COLOR_BLACK);
-      last=height;
-      x++;
-    }
+    draw_net_stream(canvas, 0, 16.0f, net_max_in);   // in
+    draw_net_stream(canvas, 1, 34.0f, net_max_out);  // out
     g15r_drawLine (canvas, 52, 0, 52, 34, G15_COLOR_BLACK);
     g15r_drawLine (canvas, 53, 0, 53, 34, G15_COLOR_BLACK);
     g15r_drawLine (canvas, 54, 0, 54, 34, G15_COLOR_BLACK);
