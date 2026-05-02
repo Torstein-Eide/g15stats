@@ -61,6 +61,10 @@ This is a simple stats client showing graphs for CPU, MEM & Swap usage, Network 
 #include <glibtop/uptime.h>
 #include <glibtop/sysinfo.h>
 #include <yaml.h>
+#include <ifaddrs.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <net/if.h>
 #include "g15stats.h"
 
 /* ================================================================
@@ -163,6 +167,27 @@ unsigned long net_max_out   = 100;
 
 unsigned long net_cur_in    = 0;
 unsigned long net_cur_out   = 0;
+
+#define NET_AVG_WINDOW 10
+unsigned long net_avg_in    = 0;
+unsigned long net_avg_out   = 0;
+int net_ipv6_scroll_tick    = 0;
+
+#define NET_INFO_DISPLAY_TICKS 3
+#define MAX_NET_IPV6 6
+
+typedef struct {
+    char addr[INET6_ADDRSTRLEN];
+    int  prefix_len;
+} net_ipv6_entry_t;
+
+char             net_info_ipv4[INET_ADDRSTRLEN]        = {0};
+int              net_info_ipv4_prefix                  = -1;
+net_ipv6_entry_t net_info_ipv6_list[MAX_NET_IPV6]      = {{{0}, 0}};
+int              net_info_ipv6_count                   = 0;
+char             net_info_gw[INET_ADDRSTRLEN]          = {0};
+int              net_info_speed                        = 0;
+int              net_info_ticks                        = 0;
 
 float temp_tot_cur  = 1;
 float temp_tot_max  = 90;
@@ -400,7 +425,6 @@ static const char *screen_name(int screen_id) {
         case SCREEN_BAT: return "BATTERY";
         case SCREEN_TEMP: return "TEMPERATURE";
         case SCREEN_FAN: return "FAN";
-        case SCREEN_NET2: return "NETWORK PEAK";
         case SCREEN_GPU: return "GPU";
         case SCREEN_MEM_PRESSURE: return "MEM PRESSURE";
         default: return "UNKNOWN";
@@ -410,7 +434,6 @@ static const char *screen_name(int screen_id) {
 static int screen_is_visible(int screen_id) {
     switch (screen_id) {
         case SCREEN_NET:
-        case SCREEN_NET2:
             return have_nic;
         case SCREEN_BAT:
             return have_bat;
@@ -834,6 +857,25 @@ char * show_bytes(unsigned long bytes) {
     else {
         sprintf(tmpstr,"%luB",bytes);
     }
+    return tmpstr;
+}
+
+/* SI bits/s rate: "1.2Gb/s", "100Mb/s", "512kb/s", "800b/s" */
+/* Format bytes_val as bits/s using the unit tier determined by bytes_scale.
+ * Pass the same value for both to get the natural unit for that value.
+ * Pass a rolling average as bytes_scale to keep the unit stable. */
+char * show_bits_si(unsigned long bytes_val, unsigned long bytes_scale) {
+    static char tmpstr[16];
+    unsigned long bits      = bytes_val   * 8;
+    unsigned long bits_scl  = bytes_scale * 8;
+    if (bits_scl >= 1000000000UL)
+        snprintf(tmpstr, sizeof(tmpstr), "%.2fGb/s", (double)bits / 1e9);
+    else if (bits_scl >= 1000000UL)
+        snprintf(tmpstr, sizeof(tmpstr), "%.2fMb/s", (double)bits / 1e6);
+    else if (bits_scl >= 1000UL)
+        snprintf(tmpstr, sizeof(tmpstr), "%.1fkb/s", (double)bits / 1e3);
+    else
+        snprintf(tmpstr, sizeof(tmpstr), "%lub/s", bits);
     return tmpstr;
 }
 
@@ -1885,15 +1927,14 @@ void print_swap_info(g15canvas *canvas, char *tmpstr) {
 }
 
 void print_net_peak_info(g15canvas *canvas, char *tmpstr) {
-    snprintf(tmpstr, MAX_LINES, "Peak IN %s/s|", show_bytes(net_max_in));
-    append_textf(tmpstr, MAX_LINES, "Peak OUT %s/s", show_bytes(net_max_out));
+    /* TODO: decide on bottom info content for net screen
+    snprintf(tmpstr, MAX_LINES, "IN %s/s|", show_bytes(net_cur_in));
+    append_textf(tmpstr, MAX_LINES, "OUT %s/s|", show_bytes(net_cur_out));
+    append_textf(tmpstr, MAX_LINES, "Pk IN %s/s|", show_bytes(net_max_in));
+    append_textf(tmpstr, MAX_LINES, "Pk OUT %s/s", show_bytes(net_max_out));
     render_info_text(canvas, tmpstr);
-}
-
-void print_net_current_info(g15canvas *canvas, char *tmpstr) {
-    snprintf(tmpstr, MAX_LINES, "Current IN %s/s|", show_bytes(net_cur_in));
-    append_textf(tmpstr, MAX_LINES, "Current OUT %s/s", show_bytes(net_cur_out));
-    render_info_text(canvas, tmpstr);
+    */
+    (void)canvas; (void)tmpstr;
 }
 
 void print_freq_info(g15canvas *canvas, char *tmpstr) {
@@ -3366,9 +3407,11 @@ static void draw_net_stream(g15canvas *canvas, int stream_idx, float baseline,
     for (i = net_rr_index + 1; i < MAX_NET_HIST; i++) {
         if (net_scale_absolute == 2)
             height = tiered_graph_height(net_hist[i][stream_idx], baseline, 16.0f);
-        else {
+        else if (net_hist[i][stream_idx] > 0 && net_max > 0) {
             diff   = (float) net_max / (float) net_hist[i][stream_idx];
             height = baseline - (16.0f / diff);
+        } else {
+            height = baseline;
         }
         g15r_setPixel(canvas, x, (int)height, G15_COLOR_BLACK);
         g15r_drawLine(canvas, x, (int)height, x - 1, (int)last, G15_COLOR_BLACK);
@@ -3378,9 +3421,11 @@ static void draw_net_stream(g15canvas *canvas, int stream_idx, float baseline,
     for (i = 0; i < net_rr_index; i++) {
         if (net_scale_absolute == 2)
             height = tiered_graph_height(net_hist[i][stream_idx], baseline, 16.0f);
-        else {
+        else if (net_hist[i][stream_idx] > 0 && net_max > 0) {
             diff   = (float) net_max / (float) net_hist[i][stream_idx];
             height = baseline - (16.0f / diff);
+        } else {
+            height = baseline;
         }
         g15r_drawLine(canvas, x, (int)height, x - 1, (int)last, G15_COLOR_BLACK);
         last = height;
@@ -3388,12 +3433,183 @@ static void draw_net_stream(g15canvas *canvas, int stream_idx, float baseline,
     }
 }
 
+/* Expand a compressed IPv6 address string into 8 uint16_t groups. */
+static void expand_ipv6(const char *addr, uint16_t g[8]) {
+    struct in6_addr a;
+    int i;
+    memset(g, 0, 8 * sizeof(uint16_t));
+    if (inet_pton(AF_INET6, addr, &a) != 1) return;
+    for (i = 0; i < 8; i++)
+        g[i] = ((uint16_t)a.s6_addr[i * 2] << 8) | a.s6_addr[i * 2 + 1];
+}
+
+/* Return the number of leading groups that are equal between a and b. */
+static int ipv6_common_groups(const uint16_t *a, const uint16_t *b) {
+    int i;
+    for (i = 0; i < 8; i++)
+        if (a[i] != b[i]) break;
+    return i;
+}
+
+/* Format groups g[start..7] as a compressed IPv6 suffix string. */
+static void format_ipv6_suffix(char *out, size_t out_size, const uint16_t *g, int start) {
+    int n = 8 - start;
+    int best_start = -1, best_len = 0, cur_start = -1, cur_len = 0;
+    int i, pos = 0, after_dc = 0;
+
+    for (i = 0; i < n; i++) {
+        if (g[start + i] == 0) {
+            if (cur_start < 0) { cur_start = i; cur_len = 1; }
+            else cur_len++;
+            if (cur_len > best_len) { best_start = cur_start; best_len = cur_len; }
+        } else {
+            cur_start = -1; cur_len = 0;
+        }
+    }
+    if (best_len < 2) best_start = -1;
+
+    for (i = 0; i < n; i++) {
+        if (best_start >= 0 && i == best_start) {
+            pos += snprintf(out + pos, out_size - pos, i == 0 ? "::" : "::");
+            i += best_len - 1;
+            after_dc = 1;
+            continue;
+        }
+        if (i > 0 && !after_dc)
+            pos += snprintf(out + pos, out_size - pos, ":");
+        after_dc = 0;
+        pos += snprintf(out + pos, out_size - pos, "%x", (unsigned)g[start + i]);
+    }
+    if (pos < (int)out_size) out[pos] = '\0';
+}
+
+/* Format the first n groups of g as a plain colon-separated string (no ::). */
+
+/* Render all IPv6 addresses with ".." abbreviation and horizontal scrolling
+ * for lines that exceed the display width. */
+static void render_ipv6_page(g15canvas *canvas, char *tmpstr) {
+    uint16_t ref[8] = {0};
+    uint16_t cur[8];
+    int ref_set = 0;
+    int ref_idx = -1;
+    int i, y = 10;
+    /* SMALL text: 4 px/char, 160 px wide → 39 visible chars from x=1 */
+    const int visible = 39;
+
+    net_ipv6_scroll_tick++;
+
+    /* First non-link-local address is the abbreviation reference; shown in full. */
+    for (i = 0; i < net_info_ipv6_count; i++) {
+        if (strncmp(net_info_ipv6_list[i].addr, "fe80", 4) != 0) {
+            expand_ipv6(net_info_ipv6_list[i].addr, ref);
+            ref_set = 1;
+            ref_idx = i;
+            break;
+        }
+    }
+
+    if (net_info_ipv6_count == 0) {
+        g15r_renderString(canvas, (unsigned char *)"V6: none", 0, G15_TEXT_MED, 1, 12);
+        return;
+    }
+
+    for (i = 0; i < net_info_ipv6_count && y <= 38; i++) {
+        const char *addr   = net_info_ipv6_list[i].addr;
+        int         pfxlen = net_info_ipv6_list[i].prefix_len;
+        int is_ll          = strncmp(addr, "fe80", 4) == 0;
+        int common         = 0;
+        int char_start     = 0;
+        int len;
+
+        expand_ipv6(addr, cur);
+
+        /* Don't abbreviate the reference address itself. */
+        if (ref_set && !is_ll && i != ref_idx)
+            common = ipv6_common_groups(ref, cur);
+
+        if (common >= 3) {
+            char suf_str[INET6_ADDRSTRLEN];
+            int  abbrev = common - 1;
+
+            format_ipv6_suffix(suf_str, sizeof(suf_str), cur, abbrev);
+
+            /* No indentation: keeps /prefix always within the 39-char window. */
+            if (pfxlen >= 0)
+                snprintf(tmpstr, MAX_LINES, "..:%s/%d", suf_str, pfxlen);
+            else
+                snprintf(tmpstr, MAX_LINES, "..:%s", suf_str);
+        } else {
+            if (pfxlen >= 0)
+                snprintf(tmpstr, MAX_LINES, "%.*s/%d", INET6_ADDRSTRLEN - 1, addr, pfxlen);
+            else
+                snprintf(tmpstr, MAX_LINES, "%.*s",    INET6_ADDRSTRLEN - 1, addr);
+        }
+
+        /* Horizontal scroll for lines wider than the display */
+        len = (int)strlen(tmpstr);
+        if (len > visible) {
+            int max_s  = len - visible;
+            int period = max_s + 8;          /* scroll + 8-tick hold at each end */
+            int t      = net_ipv6_scroll_tick % (2 * period);
+            if (t < 8)
+                char_start = 0;
+            else if (t < 8 + max_s)
+                char_start = t - 8;
+            else if (t < period)
+                char_start = max_s;
+            else if (t < period + 8)
+                char_start = max_s;
+            else
+                char_start = max_s - (t - period - 8);
+            char_start = clamp_int(char_start, 0, max_s);
+        }
+
+        g15r_renderString(canvas, (unsigned char *)tmpstr + char_start,
+                          0, G15_TEXT_SMALL, 1, y);
+        y += 6;
+    }
+}
+
 void draw_net_screen(g15canvas *canvas, char *tmpstr, char *interface) {
     int x;
 
-    g15r_clearScreen (canvas, G15_COLOR_WHITE);
+    g15r_clearScreen(canvas, G15_COLOR_WHITE);
+
+    if (net_info_ticks > 0) {
+        net_info_ticks--;
+        if (net_info_speed > 0) {
+            if (net_info_speed >= 1000)
+                snprintf(tmpstr, MAX_LINES, "IF: %s  %dG", interface, net_info_speed / 1000);
+            else
+                snprintf(tmpstr, MAX_LINES, "IF: %s  %dM", interface, net_info_speed);
+        } else {
+            snprintf(tmpstr, MAX_LINES, "IF: %s", interface);
+        }
+        g15r_renderString(canvas, (unsigned char *)tmpstr, 0, G15_TEXT_MED, 1, 2);
+
+        if (net_info_ticks >= NET_INFO_DISPLAY_TICKS) {
+            /* Page 1: IPv4 */
+            if (net_info_ipv4[0]) {
+                if (net_info_ipv4_prefix >= 0)
+                    snprintf(tmpstr, MAX_LINES, "IP: %s/%d",
+                             net_info_ipv4, net_info_ipv4_prefix);
+                else
+                    snprintf(tmpstr, MAX_LINES, "IP: %s", net_info_ipv4);
+            } else {
+                snprintf(tmpstr, MAX_LINES, "IP: none");
+            }
+            g15r_renderString(canvas, (unsigned char *)tmpstr, 0, G15_TEXT_MED, 1, 12);
+            snprintf(tmpstr, MAX_LINES, "GW: %s", net_info_gw[0] ? net_info_gw : "none");
+            g15r_renderString(canvas, (unsigned char *)tmpstr, 0, G15_TEXT_MED, 1, 22);
+        } else {
+            /* Page 2: IPv6 */
+            render_ipv6_page(canvas, tmpstr);
+        }
+        return;
+    }
+
     glibtop_netload netload;
-    glibtop_get_netload(&netload,interface);    
+    glibtop_get_netload(&netload, interface);
     draw_net_stream(canvas, 0, 16.0f, net_max_in);   // in
     draw_net_stream(canvas, 1, 34.0f, net_max_out);  // out
     g15r_drawLine (canvas, 52, 0, 52, 34, G15_COLOR_BLACK);
@@ -3416,20 +3632,38 @@ void draw_net_screen(g15canvas *canvas, char *tmpstr, char *interface) {
         }
     }
 
-    snprintf(tmpstr, MAX_LINES, "IN %s", show_bytes(netload.bytes_in));
-    g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 2);
-    snprintf(tmpstr, MAX_LINES, "OUT %s", show_bytes(netload.bytes_out));
-    g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, 1, 26);
+    /* Left panel: direction label + right-anchored rate (10-s average).
+     * show_bits_si uses a static buffer so copy each result before the next call. */
+    {
+        char in_buf[16], out_buf[16];
+        int rx;
+        strncpy(in_buf,  show_bits_si(net_cur_in,  net_avg_in),  sizeof(in_buf)  - 1);
+        in_buf[sizeof(in_buf) - 1] = '\0';
+        strncpy(out_buf, show_bits_si(net_cur_out, net_avg_out), sizeof(out_buf) - 1);
+        out_buf[sizeof(out_buf) - 1] = '\0';
 
-    snprintf(tmpstr, MAX_LINES, "%s", interface);
-    g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_LARGE, 25-(strlen(tmpstr)*9)/2, 14);
+        g15r_renderString(canvas, (unsigned char *)"IN",  0, G15_TEXT_MED, 1, 2);
+        rx = 51 - (int)strlen(in_buf) * 6;
+        if (rx < 1) rx = 1;
+        g15r_renderString(canvas, (unsigned char *)in_buf, 0, G15_TEXT_MED, rx, 10);
 
-    if (net_scale_absolute == 1)
-        print_vert_label_logic(canvas, "ABS  ", 47);
-    else if (net_scale_absolute == 2)
-        print_vert_label_logic(canvas, "TIER ", 47);
-    else
-        print_vert_label_logic(canvas, "REL  ", 47);
+        g15r_renderString(canvas, (unsigned char *)"OUT", 0, G15_TEXT_MED, 1, 19);
+        rx = 51 - (int)strlen(out_buf) * 6;
+        if (rx < 1) rx = 1;
+        g15r_renderString(canvas, (unsigned char *)out_buf, 0, G15_TEXT_MED, rx, 27);
+    }
+
+    /* Bottom strip: cumulative byte totals, clear of the graph area */
+    {
+        char out_total[24];
+        int out_x;
+        snprintf(tmpstr,   sizeof(char) * MAX_LINES, "IN:%s",  show_bytes(netload.bytes_in));
+        snprintf(out_total, sizeof(out_total),        "OUT:%s", show_bytes(netload.bytes_out));
+        g15r_renderString(canvas, (unsigned char *)tmpstr,    0, G15_TEXT_SMALL, 1,     36);
+        out_x = G15_LCD_WIDTH - (int)strlen(out_total) * 4 - 1;
+        if (out_x < 1) out_x = 1;
+        g15r_renderString(canvas, (unsigned char *)out_total, 0, G15_TEXT_SMALL, out_x, 36);
+    }
 }
 
 void draw_bat_screen(g15canvas *canvas, char *tmpstr, int all) {
@@ -3754,12 +3988,6 @@ void calc_info_cycle(void) {
                     break;
                 }
                 info_cycle_timer += info_pause;
-            case SCREEN_NET2:
-                if (have_nic) {
-                    info_cycle = SCREEN_NET2;
-                    break;
-                }
-                info_cycle_timer += info_pause;
             case SCREEN_GPU:
                 if (have_gpu) {
                     info_cycle = SCREEN_GPU;
@@ -3789,10 +4017,6 @@ void calc_info_cycle(void) {
             info_cycle = SCREEN_SUMMARY;
         }
 
-        if (target_screen >= SCREEN_NET2 && info_cycle == SCREEN_NET2 && !have_nic) {
-            info_cycle_timer = 0;
-            info_cycle = SCREEN_SUMMARY;
-        }
     }
 }
 
@@ -3829,9 +4053,6 @@ void print_info_label(g15canvas *canvas, char *tmpstr) {
             if (cycle != SCREEN_FAN) {
                 draw_g15_stats_info_screen(canvas, tmpstr, 0, SCREEN_FAN);
             }
-            break;
-        case SCREEN_NET2    :
-            print_net_current_info(canvas, tmpstr);
             break;
         case SCREEN_GPU:
             if (!update_nvidia_gpu_stats()) {
@@ -3968,7 +4189,9 @@ void keyboard_watch(void) {
                     switch (cycle) {
                         case SCREEN_NET:
                             if (have_nic) {
-                                net_scale_absolute = (net_scale_absolute + 1) % 3;
+                                /* mode[cycle] already incremented; clamp and sync */
+                                if (mode[cycle] > MAX_MODE) mode[cycle] = 0;
+                                net_scale_absolute = mode[cycle];
                             } else {
                                 change = 0;
                             }
@@ -4080,6 +4303,20 @@ void network_watch(void *iface) {
             net_hist[i][0] = net_cur_in;
             net_hist[i][1] = net_cur_out;
 
+            /* Rolling average over NET_AVG_WINDOW seconds */
+            {
+                unsigned long sum_in = 0, sum_out = 0;
+                int w, idx, count = 0;
+                for (w = 0; w < NET_AVG_WINDOW && w < MAX_NET_HIST; w++) {
+                    idx = (i - w + MAX_NET_HIST) % MAX_NET_HIST;
+                    sum_in  += net_hist[idx][0];
+                    sum_out += net_hist[idx][1];
+                    count++;
+                }
+                net_avg_in  = count ? sum_in  / (unsigned long)count : net_cur_in;
+                net_avg_out = count ? sum_out / (unsigned long)count : net_cur_out;
+            }
+
             if (net_scale_absolute == 1) {
                 net_max_in = maxi(net_max_in, net_cur_in);
                 net_max_out = maxi(net_max_out, net_cur_out);
@@ -4110,6 +4347,154 @@ void network_watch(void *iface) {
     }
 }
 
+/* Read /proc/net/route and return the interface that has the default gateway.
+ * Returns 1 and fills iface_out on success, 0 if not found. */
+static int find_gateway_iface(char *iface_out, size_t iface_size,
+                               struct in_addr *gw_out) {
+    FILE *f;
+    char line[256];
+    char iface[64];
+    unsigned int dest, gw, flags;
+
+    f = fopen("/proc/net/route", "r");
+    if (!f)
+        return 0;
+
+    /* skip header */
+    if (!fgets(line, sizeof(line), f)) {
+        fclose(f);
+        return 0;
+    }
+
+    while (fgets(line, sizeof(line), f)) {
+        if (sscanf(line, "%63s %x %x %x", iface, &dest, &gw, &flags) != 4)
+            continue;
+        /* bit 0x0002 = RTF_GATEWAY, dest==0 means default route */
+        if (dest == 0 && (flags & 0x0002) && gw != 0) {
+            snprintf(iface_out, iface_size, "%s", iface);
+            /* /proc/net/route stores the IP as a little-endian 32-bit hex value.
+             * Reading with %x on x86 gives the bytes in memory as the correct
+             * network-byte-order sequence; assign directly without htonl. */
+            gw_out->s_addr = gw;
+            fclose(f);
+            return 1;
+        }
+    }
+    fclose(f);
+    return 0;
+}
+
+static int netmask_to_prefix4(const struct sockaddr *nm) {
+    uint32_t mask;
+    int bits = 0;
+    if (!nm) return -1;
+    mask = ntohl(((const struct sockaddr_in *)nm)->sin_addr.s_addr);
+    while (mask & 0x80000000u) { bits++; mask <<= 1; }
+    return bits;
+}
+
+static int netmask_to_prefix6(const struct sockaddr *nm) {
+    const uint8_t *p;
+    int i, bits = 0;
+    if (!nm) return -1;
+    p = ((const struct sockaddr_in6 *)nm)->sin6_addr.s6_addr;
+    for (i = 0; i < 16; i++) {
+        uint8_t b = p[i];
+        if (b == 0xff) { bits += 8; continue; }
+        while (b & 0x80) { bits++; b <<= 1; }
+        break;
+    }
+    return bits;
+}
+
+/* Populate net_info_ipv4, net_info_ipv6_list, net_info_gw, net_info_speed for
+ * the given interface. Global unicast addresses are stored first; link-local
+ * is appended at the end. */
+void update_net_info(const char *iface) {
+    struct ifaddrs *ifap, *ifa;
+    struct in_addr gw;
+    char gw_iface[64] = {0};
+    FILE *sf;
+    char speed_path[128];
+    net_ipv6_entry_t ll_buf[MAX_NET_IPV6];
+    int n_ll = 0, n_global = 0, i;
+
+    net_info_ipv4[0]      = '\0';
+    net_info_ipv4_prefix  = -1;
+    net_info_ipv6_count   = 0;
+    net_info_gw[0]        = '\0';
+    net_info_speed        = 0;
+    memset(net_info_ipv6_list, 0, sizeof(net_info_ipv6_list));
+    memset(ll_buf, 0, sizeof(ll_buf));
+
+    if (find_gateway_iface(gw_iface, sizeof(gw_iface), &gw))
+        inet_ntop(AF_INET, &gw, net_info_gw, sizeof(net_info_gw));
+
+    snprintf(speed_path, sizeof(speed_path), "/sys/class/net/%s/speed", iface);
+    sf = fopen(speed_path, "r");
+    if (sf) {
+        if (fscanf(sf, "%d", &net_info_speed) != 1)
+            net_info_speed = 0;
+        fclose(sf);
+    }
+
+    if (getifaddrs(&ifap) != 0)
+        return;
+
+    for (ifa = ifap; ifa != NULL; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr || strcmp(ifa->ifa_name, iface) != 0)
+            continue;
+        if (!(ifa->ifa_flags & IFF_UP) || !(ifa->ifa_flags & IFF_RUNNING))
+            continue;
+
+        if (ifa->ifa_addr->sa_family == AF_INET && net_info_ipv4[0] == '\0') {
+            struct sockaddr_in *sa = (struct sockaddr_in *)ifa->ifa_addr;
+            inet_ntop(AF_INET, &sa->sin_addr, net_info_ipv4, sizeof(net_info_ipv4));
+            net_info_ipv4_prefix = netmask_to_prefix4(ifa->ifa_netmask);
+        }
+
+        if (ifa->ifa_addr->sa_family == AF_INET6) {
+            struct sockaddr_in6 *sa6 = (struct sockaddr_in6 *)ifa->ifa_addr;
+            char buf[INET6_ADDRSTRLEN];
+            const uint8_t *a = sa6->sin6_addr.s6_addr;
+            int j, nonzero_host = 0;
+
+            inet_ntop(AF_INET6, &sa6->sin6_addr, buf, sizeof(buf));
+
+            if (strcmp(buf, "::") == 0 || strcmp(buf, "::1") == 0)
+                continue;
+
+            /* skip network-prefix / anycast (lower 8 bytes all zero) */
+            for (j = 8; j < 16; j++)
+                nonzero_host |= a[j];
+            if (!nonzero_host)
+                continue;
+
+            if (strncmp(buf, "fe80", 4) == 0) {
+                if (n_ll < MAX_NET_IPV6) {
+                    snprintf(ll_buf[n_ll].addr, sizeof(ll_buf[n_ll].addr), "%s", buf);
+                    ll_buf[n_ll].prefix_len = netmask_to_prefix6(ifa->ifa_netmask);
+                    n_ll++;
+                }
+            } else {
+                if (n_global < MAX_NET_IPV6) {
+                    snprintf(net_info_ipv6_list[n_global].addr,
+                             sizeof(net_info_ipv6_list[n_global].addr), "%s", buf);
+                    net_info_ipv6_list[n_global].prefix_len =
+                        netmask_to_prefix6(ifa->ifa_netmask);
+                    n_global++;
+                }
+            }
+        }
+    }
+    freeifaddrs(ifap);
+
+    /* Append link-local after global unicast */
+    for (i = 0; i < n_ll && n_global < MAX_NET_IPV6; i++)
+        net_info_ipv6_list[n_global++] = ll_buf[i];
+    net_info_ipv6_count = n_global;
+}
+
 int auto_discover_nic(unsigned char *interface, size_t interface_size) {
     DIR *dir;
     struct dirent *entry;
@@ -4119,6 +4504,16 @@ int auto_discover_nic(unsigned char *interface, size_t interface_size) {
 
     if (interface == NULL || interface_size == 0) {
         return 0;
+    }
+
+    /* Prefer the interface that has the default gateway. */
+    {
+        char gw_iface[64] = {0};
+        struct in_addr gw;
+        if (find_gateway_iface(gw_iface, sizeof(gw_iface), &gw) && gw_iface[0] != '\0') {
+            snprintf((char *)interface, interface_size, "%s", gw_iface);
+            return 1;
+        }
     }
 
     dir = opendir("/sys/class/net");
@@ -4197,7 +4592,6 @@ static void draw_optional_screen(g15canvas *canvas, char *tmpstr, int screen,
                                   int unicore, char *interface) {
     switch (screen) {
         case SCREEN_NET:
-        case SCREEN_NET2:
             draw_net_screen(canvas, tmpstr, interface);
             break;
         case SCREEN_BAT:
@@ -4382,6 +4776,9 @@ static void init_hardware(unsigned char *interface, size_t interface_size,
         }
     }
 
+    if (have_nic)
+        update_net_info((const char *)interface);
+
     have_gpu = probe_nvidia_gpu();
     if (!have_gpu && debug_enabled)
         fprintf(stderr, "[g15stats] nvidia-smi unavailable or no NVIDIA GPU detected; GPU screen disabled\n");
@@ -4428,6 +4825,14 @@ static void run_loop(g15canvas *canvas, char *tmpstr, int unicore,
         if (cycle != SCREEN_CPU2)
             cpu2_debug_logged = 0;
 
+        /* Show interface metadata splash when first entering the network screen. */
+        if (cycle == SCREEN_NET && cycle_old != cycle && have_nic) {
+            update_net_info((const char *)interface);
+            net_info_ticks       = NET_INFO_DISPLAY_TICKS * 2;
+            net_ipv6_scroll_tick = 0;
+        }
+
+        int net_splash_active = (cycle == SCREEN_NET && net_info_ticks > 0);
         calc_info_cycle();
         switch (cycle) {
             case SCREEN_SUMMARY:
@@ -4442,7 +4847,6 @@ static void run_loop(g15canvas *canvas, char *tmpstr, int unicore,
                 draw_swap_screen(canvas, tmpstr);
                 break;
             case SCREEN_NET:
-            case SCREEN_NET2:
             case SCREEN_BAT:
             case SCREEN_TEMP:
             case SCREEN_FAN:
@@ -4477,7 +4881,8 @@ static void run_loop(g15canvas *canvas, char *tmpstr, int unicore,
                     cycle, screen_name(cycle), mode[cycle], submode);
         }
         cycle_old = cycle;
-        print_info_label(canvas, tmpstr);
+        if (!net_splash_active)
+            print_info_label(canvas, tmpstr);
         draw_screen_overlay(canvas, tmpstr);
         draw_mode_overlay(canvas, tmpstr);
 
@@ -4515,6 +4920,8 @@ int main(int argc, const char *argv[]) {
                    output_file_path, sizeof(output_file_path),
                    &go_daemon, &unicore))
         return 0;
+
+    mode[SCREEN_NET] = net_scale_absolute;
 
     use_screen_output = open_display(output_file_path, &output_file);
     if (use_screen_output < 0)

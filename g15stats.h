@@ -50,11 +50,10 @@
 #define SCREEN_BAT      6
 #define SCREEN_TEMP     7
 #define SCREEN_FAN      8
-#define SCREEN_NET2     9
-#define SCREEN_GPU      10
-#define SCREEN_MEM_PRESSURE 11
+#define SCREEN_GPU      9
+#define SCREEN_MEM_PRESSURE 10
 
-#define	MAX_SCREENS	11
+#define	MAX_SCREENS	10
 
 typedef struct g15_stats_bat_info
 {	
