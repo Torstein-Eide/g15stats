@@ -4295,6 +4295,9 @@ void keyboard_watch(void) {
                         case SCREEN_CPU2:
                             if (mode[cycle] > 1) mode[cycle] = 0;
                             break;
+                        case SCREEN_MEM:
+                            if (mode[cycle] > 1) mode[cycle] = 0;
+                            break;
                         case    SCREEN_BAT:
                             change = 0;
                             break;
