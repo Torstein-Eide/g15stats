@@ -4139,7 +4139,7 @@ void print_info_label(g15canvas *canvas, char *tmpstr) {
             }
             break;
         case SCREEN_GPU:
-            if (!update_nvidia_gpu_stats()) {
+            if (cycle != SCREEN_GPU && !update_nvidia_gpu_stats()) {
                 snprintf(tmpstr, MAX_LINES, "GPU data unavailable");
             } else {
                 int mem_pct = 0;
