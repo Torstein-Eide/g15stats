@@ -4366,10 +4366,10 @@ void network_watch(void *iface) {
   glibtop_get_netload(&netload,interface);
   for(i=0;i<8;i++)
     mac+=netload.hwaddress[i];
-  if(!mac && debug_enabled) {
-    fprintf(stderr,
-            "[g15stats] network interface %s has no MAC in netload; continuing with traffic counters\n",
-            interface);
+  if(!mac) {
+    fprintf(stderr, "Interface %s does not appear to exist. Net screen will be disabled.\n", interface);
+    have_nic = 0;
+    return; /* interface probably doesn't exist - no mac address */
   }
 
     while (1) {
