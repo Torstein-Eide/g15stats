@@ -23,7 +23,7 @@ make install
 ```
 
 For full setup guidance (including sensors and service setup), see
-[`docs/installation-tutorial.md`](docs/installation-tutorial.md).
+[`docs/installation.md`](docs/installation.md).
 
 ## Highlights
 
@@ -81,7 +81,6 @@ Start here:
 
 - [`docs/index.md`](docs/index.md)
 - [`docs/installation.md`](docs/installation.md)
-- [`docs/installation-tutorial.md`](docs/installation-tutorial.md)
 - [`docs/usage.md`](docs/usage.md)
 - [`docs/options.md`](docs/options.md)
 - [`docs/screens.md`](docs/screens.md)

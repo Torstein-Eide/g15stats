@@ -21,8 +21,8 @@ G15Stats is a statistics monitoring application for G15 LCD displays. It provide
 ## Quick Start
 
 !!! tip
-    New setup? Start with the
-    [Installation Tutorial](installation-tutorial.md) for sensor and systemd steps.
+    New setup? See the [Installation](installation.md) guide for sensor and
+    systemd steps.
 
 ```bash
 # Build the project
@@ -58,8 +58,7 @@ Once running, the separate screens can be switched to as follows:
 
 | Page | Purpose |
 |---|---|
-| [Installation](installation.md) | Build and installation instructions |
-| [Installation Tutorial](installation-tutorial.md) | End-to-end setup with sensors and systemd |
+| [Installation](installation.md) | Build, install, sensor, and systemd setup |
 | [Usage](usage.md) | How to run and use G15Stats |
 | [Options](options.md) | Command-line options reference |
 | [Screens](screens.md) | Detailed information about each screen |

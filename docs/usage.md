@@ -4,7 +4,7 @@
 
 !!! note
     For a full first-time setup with sensors and systemd, see
-    [Installation Tutorial](installation-tutorial.md).
+    [Installation](installation.md).
 
 To start G15Stats with default settings:
 
