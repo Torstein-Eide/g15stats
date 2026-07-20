@@ -1,17 +1,8 @@
 # Contributing
 
-## Project Status
-
-!!! warning "Discontinuation Notice"
-
-    I'm discontinuing this after someone made a fuzz about a feature he decided he want a decade later.
-    And as far I am concerned, Arch Linux's AUR administrators find this behavior just fine, so I'm not wasting my efforts on this anymore.
-    
-    I can still fix issues as I always did and help via mail, but keep in mind Arch Linux is impossible to be supported.
-
 ## Reporting Issues
 
-While the project is discontinued, you can still report issues for critical bugs.
+You can report issues for critical bugs.
 
 ### Before Reporting
 
@@ -88,7 +79,7 @@ G15Stats follows the GNU coding standards for C code.
 
 ## Pull Requests
 
-While the project is discontinued, you can still submit pull requests for:
+You can submit pull requests for:
 
 - Critical bug fixes
 - Security fixes
