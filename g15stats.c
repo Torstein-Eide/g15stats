@@ -4411,7 +4411,7 @@ void network_watch(void *iface) {
             }
             net_rr_index = i;
             i++;
-            if (i > MAX_NET_HIST) i = 0;
+            if (i >= MAX_NET_HIST) i = 0;
         }
         previous_in = netload.bytes_in;
         previous_out = netload.bytes_out;
