@@ -1115,8 +1115,10 @@ int get_sysfs_value(const char *filename) {
         if (fgets(tmpstr, MAX_LINES, fd_main) != NULL) {
             fclose(fd_main);
             ret_val = atoi(tmpstr);
-        } else
+        } else {
             fclose(fd_main);
+            ret_val = SENSOR_ERROR;
+        }
     } else {
         ret_val = SENSOR_ERROR;
     }
