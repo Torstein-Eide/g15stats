@@ -3777,7 +3777,7 @@ void draw_bat_screen(g15canvas *canvas, char *tmpstr, int all) {
 			while (fgets (line,MAX_LINES,fd_state)!=NULL)
 			{
 				// Parse the state file for battery info
-				if (strcasestr (line,"remaining capacity")!=0)
+				if (strcasestr (line,"remaining capacity")!=0 && strlen(line) > 25)
 				{
 					snprintf(value, sizeof(value), "%.5s", line + 25);
 					bats[i].cur_charge=atoi (value);
@@ -3807,7 +3807,7 @@ void draw_bat_screen(g15canvas *canvas, char *tmpstr, int all) {
 				while (fgets (line,MAX_LINES,fd_info)!=NULL)
 				{
 					// Parse the info file for battery info
-					if (strcasestr (line,"last full capacity")!=0)
+					if (strcasestr (line,"last full capacity")!=0 && strlen(line) > 25)
 					{
 						snprintf(value, sizeof(value), "%.5s", line + 25);
 						bats[i].max_charge=atoi (value);
