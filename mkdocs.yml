@@ -45,6 +45,7 @@ nav:
     - Dependencies: DEPENDENCIES.md
     - Creating Documentation: Developing/Creating-Documentation.md
     - G15Mirror: Developing/G15Mirror.md
+    - Known Issues: Developing/Known-Issues.md
 
 markdown_extensions:
   - admonition
