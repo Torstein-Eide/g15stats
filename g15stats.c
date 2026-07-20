@@ -3854,7 +3854,14 @@ void draw_bat_screen(g15canvas *canvas, char *tmpstr, int all) {
                     g15r_drawBar(canvas, BAR_START, bar_top, BAR_END, bar_bottom, G15_COLOR_BLACK, bats[i].cur_charge, bats[i].max_charge, 4);
             }
 
-            drawBar_reversed(canvas,BAR_START,1,BAR_END,BAR_BOTTOM,G15_COLOR_BLACK,100-(((float)tot_cur_charge/(float)tot_max_charge)*100),100,5);
+            {
+                    float charge_pct = 0;
+                    if (tot_max_charge > 0)
+                    {
+                            charge_pct = ((float)tot_cur_charge/(float)tot_max_charge)*100;
+                    }
+                    drawBar_reversed(canvas,BAR_START,1,BAR_END,BAR_BOTTOM,G15_COLOR_BLACK,100-charge_pct,100,5);
+            }
         }
 
         if ((!all) || (info_cycle == SCREEN_BAT)) {
