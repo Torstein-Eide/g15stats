@@ -80,7 +80,7 @@ static void handle_signal(int sig) {
     keep_running = 0;
 }
 
-int cycle       = 0;
+int cycle       = SCREEN_OVERVIEW;
 int info_cycle  = 0;
 /** Holds the mode type variable of the application running */
 int mode[MAX_SCREENS + 1];
@@ -193,6 +193,9 @@ int              net_info_ipv6_count                   = 0;
 char             net_info_gw[INET_ADDRSTRLEN]          = {0};
 int              net_info_speed                        = 0;
 int              net_info_ticks                        = 0;
+
+#define OVERVIEW_LEGEND_DISPLAY_TICKS (NET_INFO_DISPLAY_TICKS * 4)
+int              overview_legend_ticks                 = 0;
 
 float temp_tot_cur  = 1;
 float temp_tot_max  = 90;
@@ -432,8 +435,37 @@ static const char *screen_name(int screen_id) {
         case SCREEN_FAN: return "FAN";
         case SCREEN_GPU: return "GPU";
         case SCREEN_MEM_PRESSURE: return "MEM PRESSURE";
+        case SCREEN_OVERVIEW: return "OVERVIEW";
         default: return "UNKNOWN";
     }
+}
+
+/* Display order for L2/L3 cycling and the "#N" screen overlay, independent
+ * of the numeric SCREEN_* ids (SCREEN_OVERVIEW is appended last numerically
+ * but shown first). */
+static const int screen_order[] = {
+    SCREEN_OVERVIEW,
+    SCREEN_SUMMARY,
+    SCREEN_CPU2,
+    SCREEN_FREQ_AGG,
+    SCREEN_MEM,
+    SCREEN_NET,
+    SCREEN_BAT,
+    SCREEN_TEMP,
+    SCREEN_FAN,
+    SCREEN_GPU,
+    SCREEN_MEM_PRESSURE
+};
+#define NUM_SCREEN_ORDER ((int)(sizeof(screen_order) / sizeof(screen_order[0])))
+
+static int screen_order_index(int screen_id) {
+    int i;
+    for (i = 0; i < NUM_SCREEN_ORDER; i++) {
+        if (screen_order[i] == screen_id) {
+            return i;
+        }
+    }
+    return 0;
 }
 
 static int screen_is_visible(int screen_id) {
@@ -456,7 +488,7 @@ static int screen_is_visible(int screen_id) {
 }
 
 static int find_next_visible_screen(int current, int direction) {
-    int next = current;
+    int pos = screen_order_index(current);
     int steps = 0;
 
     if (direction == 0) {
@@ -464,33 +496,34 @@ static int find_next_visible_screen(int current, int direction) {
     }
 
     do {
-        next += direction;
-        if (next > MAX_SCREENS) {
-            next = SCREEN_SUMMARY;
-        } else if (next < SCREEN_SUMMARY) {
-            next = MAX_SCREENS;
+        pos += direction;
+        if (pos >= NUM_SCREEN_ORDER) {
+            pos = 0;
+        } else if (pos < 0) {
+            pos = NUM_SCREEN_ORDER - 1;
         }
-        if (screen_is_visible(next)) {
-            return next;
+        if (screen_is_visible(screen_order[pos])) {
+            return screen_order[pos];
         }
         steps++;
-    } while (steps <= MAX_SCREENS);
+    } while (steps <= NUM_SCREEN_ORDER);
 
     return current;
 }
 
 static int overlay_screen_number(int screen_id) {
-    int s;
+    int i;
     int number = 0;
+    int target_pos = screen_order_index(screen_id);
 
-    for (s = SCREEN_SUMMARY; s <= screen_id; s++) {
-        if (screen_is_visible(s)) {
+    for (i = 0; i <= target_pos; i++) {
+        if (screen_is_visible(screen_order[i])) {
             number++;
         }
     }
 
     if (number <= 0) {
-        number = screen_id + 1;
+        number = target_pos + 1;
     }
 
     return number;
@@ -2608,6 +2641,237 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
 
     }
 }
+
+/* ================================================================
+ * Overview screen (SCREEN_OVERVIEW)
+ * A 3x3 grid giving an at-a-glance view of CPU/MEM/SWP/NET/GPU/VRM/
+ * TEM/FAN/BAT. Unlike every other screen, it doesn't use the shared
+ * BAR_START/BAR_END bar-column convention: it partitions the whole
+ * 160x43 canvas into 9 equal tiles.
+ * ================================================================ */
+
+/* Tracks CPU busy% across frames using the same cumulative-jiffies delta
+ * technique as draw_cpu_screen_unicore_logic, but with its own statics so
+ * it doesn't interfere with that screen's tracking. */
+static int overview_cpu_percent(void) {
+    static unsigned long last_total = 0, last_idle = 0;
+    static int last_pct = 0;
+    glibtop_cpu cpu;
+    unsigned long total, idle, b_total, b_idle;
+
+    glibtop_get_cpu(&cpu);
+    total = (unsigned long) cpu.total;
+    idle  = (unsigned long) cpu.idle;
+
+    if (total > last_total) {
+        b_total = total - last_total;
+        b_idle  = idle - last_idle;
+        if (b_total > 0) {
+            last_pct = clamp_int((int) (((b_total - b_idle) * 100) / b_total), 0, 100);
+        }
+    }
+    last_total = total;
+    last_idle  = idle;
+
+    return last_pct;
+}
+
+/* Draws one tile: an outline, an optional fill bar sized to pct (skipped
+ * when pct < 0), and a single line of text. Text is drawn in XOR mode
+ * whenever a bar is present so it stays legible over both the filled and
+ * unfilled regions, mirroring render_right_xor's overlap trick. */
+static void draw_overview_tile(g15canvas *canvas, int x1, int y1, int x2, int y2,
+                                int pct, const char *text) {
+    int text_y;
+
+    g15r_pixelBox(canvas, x1, y1, x2, y2, G15_COLOR_BLACK, 1, G15_PIXEL_NOFILL);
+
+    if (pct >= 0) {
+        int p = clamp_int(pct, 0, 100);
+        g15r_drawBar(canvas, x1 + 1, y1 + 1, x2 - 1, y2 - 1, G15_COLOR_BLACK, p + 1, 100, 4);
+    }
+
+    text_y = y1 + ((y2 - y1) / 2) - 3;
+    if (text_y < y1 + 1) {
+        text_y = y1 + 1;
+    }
+
+    canvas->mode_xor = (pct >= 0) ? 1 : 0;
+    g15r_renderString(canvas, (unsigned char *) text, 0, G15_TEXT_SMALL, x1 + 2, text_y);
+    canvas->mode_xor = 0;
+}
+
+/* Defined later, alongside draw_bat_screen which shares this reader. */
+static int read_battery_info(g15_stats_bat_info *bats, long *tot_cur_charge, long *tot_max_charge);
+
+/* One-shot explanation of the 9 tile abbreviations, shown for
+ * OVERVIEW_LEGEND_DISPLAY_TICKS frames each time SCREEN_OVERVIEW is
+ * (re-)entered (see the trigger in run_loop). */
+static void draw_overview_legend(g15canvas *canvas) {
+    static const char *left[] = {
+        "CPU=Processor", "MEM=Memory", "SWP=Swap", "NET=Network", "GPU=GPU load"
+    };
+    static const char *right[] = {
+        "VRM=GPU mem", "TEM=Temperature", "FAN=Fan speed", "BAT=Battery"
+    };
+    int i;
+
+    g15r_clearScreen(canvas, G15_COLOR_WHITE);
+
+    for (i = 0; i < 5; i++) {
+        g15r_renderString(canvas, (unsigned char *) left[i], 0, G15_TEXT_SMALL, 1, 1 + i * 7);
+    }
+    for (i = 0; i < 4; i++) {
+        g15r_renderString(canvas, (unsigned char *) right[i], 0, G15_TEXT_SMALL, 82, 1 + i * 7);
+    }
+}
+
+static void draw_overview_grid(g15canvas *canvas, char *tmpstr) {
+    int col, row;
+    int x1[3], x2[3], y1[3], y2[3];
+
+    g15r_clearScreen(canvas, G15_COLOR_WHITE);
+
+    for (col = 0; col < 3; col++) {
+        x1[col] = (col * G15_LCD_WIDTH) / 3;
+        x2[col] = ((col + 1) * G15_LCD_WIDTH) / 3 - 1;
+    }
+    for (row = 0; row < 3; row++) {
+        y1[row] = (row * G15_LCD_HEIGHT) / 3;
+        y2[row] = ((row + 1) * G15_LCD_HEIGHT) / 3 - 1;
+    }
+
+    /* Row 0: CPU / MEM / SWP */
+    {
+        int pct = overview_cpu_percent();
+        snprintf(tmpstr, MAX_LINES, "CPU %d%%", pct);
+        draw_overview_tile(canvas, x1[0], y1[0], x2[0], y2[0], pct, tmpstr);
+    }
+    {
+        glibtop_mem mem;
+        glibtop_get_mem(&mem);
+        if (mem.total > 0) {
+            int pct = clamp_int((int) (((double) mem.user / (double) mem.total) * 100), 0, 100);
+            snprintf(tmpstr, MAX_LINES, "MEM %d%%", pct);
+            draw_overview_tile(canvas, x1[1], y1[0], x2[1], y2[0], pct, tmpstr);
+        } else {
+            snprintf(tmpstr, MAX_LINES, "MEM N/A");
+            draw_overview_tile(canvas, x1[1], y1[0], x2[1], y2[0], -1, tmpstr);
+        }
+    }
+    {
+        glibtop_swap swap;
+        glibtop_get_swap(&swap);
+        if (swap.total > 0) {
+            int pct = clamp_int((int) (((double) swap.used / (double) swap.total) * 100), 0, 100);
+            snprintf(tmpstr, MAX_LINES, "SWP %d%%", pct);
+            draw_overview_tile(canvas, x1[2], y1[0], x2[2], y2[0], pct, tmpstr);
+        } else {
+            snprintf(tmpstr, MAX_LINES, "SWP N/A");
+            draw_overview_tile(canvas, x1[2], y1[0], x2[2], y2[0], -1, tmpstr);
+        }
+    }
+
+    /* Row 1: NET / GPU / VRM (NET has no natural 0-100%% scale, so it's
+     * plain text, matching draw_summary_screen's IN/OUT convention). */
+    if (have_nic) {
+        if (net_cur_in > net_cur_out) {
+            snprintf(tmpstr, MAX_LINES, "IN %s", show_bytes_short(net_cur_in));
+        } else {
+            snprintf(tmpstr, MAX_LINES, "OUT%s", show_bytes_short(net_cur_out));
+        }
+        draw_overview_tile(canvas, x1[0], y1[1], x2[0], y2[1], -1, tmpstr);
+    } else {
+        snprintf(tmpstr, MAX_LINES, "NET N/A");
+        draw_overview_tile(canvas, x1[0], y1[1], x2[0], y2[1], -1, tmpstr);
+    }
+    {
+        _Bool gpu_ok = have_gpu && update_nvidia_gpu_stats();
+
+        if (gpu_ok) {
+            int pct = clamp_int(gpu_util_cur, 0, 100);
+            snprintf(tmpstr, MAX_LINES, "GPU %d%%", pct);
+            draw_overview_tile(canvas, x1[1], y1[1], x2[1], y2[1], pct, tmpstr);
+        } else {
+            snprintf(tmpstr, MAX_LINES, "GPU N/A");
+            draw_overview_tile(canvas, x1[1], y1[1], x2[1], y2[1], -1, tmpstr);
+        }
+
+        if (gpu_ok && gpu_mem_total > 0) {
+            int pct = clamp_int((gpu_mem_used * 100) / gpu_mem_total, 0, 100);
+            snprintf(tmpstr, MAX_LINES, "VRM %d%%", pct);
+            draw_overview_tile(canvas, x1[2], y1[1], x2[2], y2[1], pct, tmpstr);
+        } else {
+            snprintf(tmpstr, MAX_LINES, "VRM N/A");
+            draw_overview_tile(canvas, x1[2], y1[1], x2[2], y2[1], -1, tmpstr);
+        }
+    }
+
+    /* Row 2: TEM / FAN / BAT */
+    {
+        g15_stats_info sensors[NUM_PROBES];
+        int count = 0;
+
+        if (have_temp) {
+            memset(sensors, 0, sizeof(sensors));
+            count = get_sensors(sensors, SCREEN_TEMP, sensor_type_temp, sensor_lost_temp, sensor_temp_id);
+        }
+        if (have_temp && count && temp_tot_max > 0) {
+            int pct = clamp_int((int) ((temp_tot_cur / temp_tot_max) * 100), 0, 100);
+            snprintf(tmpstr, MAX_LINES, "TEM %.0f\xb0", temp_tot_cur);
+            draw_overview_tile(canvas, x1[0], y1[2], x2[0], y2[2], pct, tmpstr);
+        } else {
+            snprintf(tmpstr, MAX_LINES, "TEM N/A");
+            draw_overview_tile(canvas, x1[0], y1[2], x2[0], y2[2], -1, tmpstr);
+        }
+    }
+    {
+        g15_stats_info sensors[NUM_PROBES];
+        int count = 0;
+
+        if (have_fan) {
+            memset(sensors, 0, sizeof(sensors));
+            count = get_sensors(sensors, SCREEN_FAN, sensor_type_fan, sensor_lost_fan, sensor_fan_id);
+            if (!sensor_fan_forced && !sensor_values_have_nonzero(sensors, count)) {
+                count = 0;
+            }
+        }
+        if (have_fan && count) {
+            snprintf(tmpstr, MAX_LINES, "FAN %.0f", fan_tot_cur);
+            draw_overview_tile(canvas, x1[1], y1[2], x2[1], y2[2], -1, tmpstr);
+        } else {
+            snprintf(tmpstr, MAX_LINES, "FAN N/A");
+            draw_overview_tile(canvas, x1[1], y1[2], x2[1], y2[2], -1, tmpstr);
+        }
+    }
+    {
+        g15_stats_bat_info bats[NUM_BATS];
+        long cur_charge = 0, max_charge = 0;
+        int count = 0;
+
+        if (have_bat) {
+            count = read_battery_info(bats, &cur_charge, &max_charge);
+        }
+        if (have_bat && count && max_charge > 0) {
+            int pct = clamp_int((int) (((double) cur_charge / (double) max_charge) * 100), 0, 100);
+            snprintf(tmpstr, MAX_LINES, "BAT %d%%", pct);
+            draw_overview_tile(canvas, x1[2], y1[2], x2[2], y2[2], pct, tmpstr);
+        } else {
+            snprintf(tmpstr, MAX_LINES, "BAT N/A");
+            draw_overview_tile(canvas, x1[2], y1[2], x2[2], y2[2], -1, tmpstr);
+        }
+    }
+}
+
+void draw_overview_screen(g15canvas *canvas, char *tmpstr) {
+    if (overview_legend_ticks > 0) {
+        draw_overview_legend(canvas);
+        overview_legend_ticks--;
+        return;
+    }
+    draw_overview_grid(canvas, tmpstr);
+}
+
 static void render_cpu_usage_labels(g15canvas *canvas, char *tmpstr,
                                     int user, int sys, int nice, int total) {
     snprintf(tmpstr, MAX_LINES, "Usr %4.1f%%", ((float) user  * 100.0f) / (float) total);
@@ -3798,80 +4062,94 @@ void draw_net_screen(g15canvas *canvas, char *tmpstr, char *interface) {
     }
 }
 
+/* Reads /proc/acpi/battery/BATn/{state,info} for each battery, filling
+ * bats[] and the charge totals. Returns the number of batteries found.
+ * Read-only: does not touch sensor_lost_bat/have_bat, so it's safe to call
+ * from multiple screens (e.g. the overview grid) without disturbing
+ * draw_bat_screen's own retry bookkeeping below. */
+static int read_battery_info(g15_stats_bat_info *bats, long *tot_cur_charge, long *tot_max_charge) {
+    FILE *fd_state;
+    FILE *fd_info;
+    char line[MAX_LINES];
+    char value[MAX_LINES];
+    int i;
+
+    *tot_cur_charge = 0;
+    *tot_max_charge = 0;
+
+    for (i = 0; i < NUM_BATS; i++)
+    {
+        char filename[30];
+
+        // Initialize battery state
+        bats[i].max_charge = 0;
+        bats[i].cur_charge = 0;
+        bats[i].status = -1;
+
+        snprintf(filename, sizeof(filename), "/proc/acpi/battery/BAT%d/state", i);
+        fd_state=fopen (filename,"r");
+        if (fd_state!=NULL)
+        {
+            while (fgets (line,MAX_LINES,fd_state)!=NULL)
+            {
+                // Parse the state file for battery info
+                if (strcasestr (line,"remaining capacity")!=0 && strlen(line) > 25)
+                {
+                    snprintf(value, sizeof(value), "%.5s", line + 25);
+                    bats[i].cur_charge=atoi (value);
+                }
+                if (strcasestr (line,"charging state")!=0)
+                {
+                    if (strcasestr (line,"charged")!=0)
+                    {
+                        bats[i].status=0;
+                    }
+                    if (strcasestr (line," charging")!=0)
+                    {
+                        bats[i].status=1;
+                    }
+                    if (strcasestr (line,"discharging")!=0)
+                    {
+                        bats[i].status=2;
+                    }
+                }
+            }
+            fclose (fd_state);
+            snprintf(filename, sizeof(filename), "/proc/acpi/battery/BAT%d/info", i);
+            fd_info=fopen (filename,"r");
+
+            if (fd_info!=NULL)
+            {
+                while (fgets (line,MAX_LINES,fd_info)!=NULL)
+                {
+                    // Parse the info file for battery info
+                    if (strcasestr (line,"last full capacity")!=0 && strlen(line) > 25)
+                    {
+                        snprintf(value, sizeof(value), "%.5s", line + 25);
+                        bats[i].max_charge=atoi (value);
+                    }
+                }
+                fclose (fd_info);
+            }
+
+            *tot_cur_charge += bats[i].cur_charge;
+            *tot_max_charge += bats[i].max_charge;
+
+        } else {
+            break;
+        }
+    }
+
+    return i;
+}
+
 void draw_bat_screen(g15canvas *canvas, char *tmpstr, int all) {
 
 	g15_stats_bat_info bats[NUM_BATS];
 	long	tot_max_charge = 0;
 	long	tot_cur_charge = 0;
 
-	FILE	*fd_state;
-	FILE	*fd_info;
-	char	line	[MAX_LINES];
-	char	value	[MAX_LINES];
-
-	int i = 0;
-	for (i = 0; i < NUM_BATS; i++)
-	{
-		char filename[30];
-
-		// Initialize battery state
-		bats[i].max_charge = 0;
-		bats[i].cur_charge = 0;
-		bats[i].status = -1;
-
-		snprintf(filename, sizeof(filename), "/proc/acpi/battery/BAT%d/state", i);
-		fd_state=fopen (filename,"r");
-		if (fd_state!=NULL)
-		{
-			while (fgets (line,MAX_LINES,fd_state)!=NULL)
-			{
-				// Parse the state file for battery info
-				if (strcasestr (line,"remaining capacity")!=0 && strlen(line) > 25)
-				{
-					snprintf(value, sizeof(value), "%.5s", line + 25);
-					bats[i].cur_charge=atoi (value);
-				}
-				if (strcasestr (line,"charging state")!=0)
-				{
-					if (strcasestr (line,"charged")!=0)
-					{
-						bats[i].status=0;
-					}
-					if (strcasestr (line," charging")!=0)
-					{
-						bats[i].status=1;
-					}
-					if (strcasestr (line,"discharging")!=0)
-					{
-						bats[i].status=2;
-					}
-				}
-			}
-			fclose (fd_state);
-			snprintf(filename, sizeof(filename), "/proc/acpi/battery/BAT%d/info", i);
-			fd_info=fopen (filename,"r");
-
-			if (fd_info!=NULL)
-			{
-				while (fgets (line,MAX_LINES,fd_info)!=NULL)
-				{
-					// Parse the info file for battery info
-					if (strcasestr (line,"last full capacity")!=0 && strlen(line) > 25)
-					{
-						snprintf(value, sizeof(value), "%.5s", line + 25);
-						bats[i].max_charge=atoi (value);
-					}
-				}
-				fclose (fd_info);
-			}
-
-			tot_cur_charge += bats[i].cur_charge;
-			tot_max_charge += bats[i].max_charge;
-
-		} else {
-                    break;
-                }
-	}
+	int i = read_battery_info(bats, &tot_cur_charge, &tot_max_charge);
 
         if (i) {
             sensor_lost_bat = RETRY_COUNT;
@@ -4945,7 +5223,10 @@ static void run_loop(g15canvas *canvas, char *tmpstr, int unicore,
                      FILE *output_file) {
     int forced_screen = get_forced_screen();
     int forced_mode   = get_forced_mode();
-    int cycle_old     = cycle;
+    /* Sentinel so the "just entered this screen" triggers below (NET splash,
+     * overview legend) fire on the very first frame too, not just when
+     * navigating between screens later. */
+    int cycle_old     = -1;
 
     if (debug_enabled) {
         fprintf(stderr,
@@ -4969,9 +5250,17 @@ static void run_loop(g15canvas *canvas, char *tmpstr, int unicore,
             net_ipv6_scroll_tick = 0;
         }
 
+        /* Show the tile legend each time the overview screen is (re-)entered. */
+        if (cycle == SCREEN_OVERVIEW && cycle_old != cycle) {
+            overview_legend_ticks = OVERVIEW_LEGEND_DISPLAY_TICKS;
+        }
+
         int net_splash_active = (cycle == SCREEN_NET && net_info_ticks > 0);
         calc_info_cycle();
         switch (cycle) {
+            case SCREEN_OVERVIEW:
+                draw_overview_screen(canvas, tmpstr);
+                break;
             case SCREEN_SUMMARY:
             case SCREEN_CPU2:
             case SCREEN_FREQ_AGG:
@@ -5005,7 +5294,7 @@ static void run_loop(g15canvas *canvas, char *tmpstr, int unicore,
             }
             default:
                 draw_cpu_screen_multicore(canvas, tmpstr, unicore);
-                cycle = 0;
+                cycle = SCREEN_OVERVIEW;
                 info_cycle = cycle;
                 break;
         }

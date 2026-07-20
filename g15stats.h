@@ -51,8 +51,9 @@
 #define SCREEN_FAN      7
 #define SCREEN_GPU      8
 #define SCREEN_MEM_PRESSURE 9
+#define SCREEN_OVERVIEW 10
 
-#define	MAX_SCREENS	9
+#define	MAX_SCREENS	10
 
 typedef struct g15_stats_bat_info
 {	
