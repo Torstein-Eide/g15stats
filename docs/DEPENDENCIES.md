@@ -24,6 +24,11 @@ The following development packages must be installed before compiling:
    - Also requires:
      - `glib-2.0` - GLib utility library
 
+4. **libyaml** - YAML parsing library
+   - Header: `yaml.h`
+   - Library: `libyaml`
+   - Purpose: Parses the `/etc/g15plugins/g15stats.yaml` config file
+
 ### Build Tools
 
 The following tools are required to build from source:
@@ -42,31 +47,32 @@ The following libraries must be present on the system to run g15stats:
 - `libg15render`
 - `libgtop-2.0`
 - `libglib-2.0`
+- `libyaml`
 
 ## Installation by Distribution
 
 ### Debian/Ubuntu
 
 ```bash
-sudo apt-get install libg15daemon-client-dev libg15render-dev libgtop2-dev
+sudo apt-get install make gcc libg15daemon-client-dev libg15render-dev libgtop2-dev libyaml-dev
 ```
 
 ### Fedora/RHEL
 
 ```bash
-sudo dnf install libg15daemon-client-devel libg15render-devel libgtop2-devel
+sudo dnf install make gcc libg15daemon-client-devel libg15render-devel libgtop2-devel libyaml-devel
 ```
 
 ### Arch Linux
 
 ```bash
-sudo pacman -S libg15daemon libg15render libgtop
+sudo pacman -S make gcc libg15daemon libg15render libgtop libyaml
 ```
 
 ### openSUSE
 
 ```bash
-sudo zypper install libg15daemon-client-devel libg15render-devel libgtop-devel
+sudo zypper install make gcc libg15daemon-client-devel libg15render-devel libgtop-devel libyaml-devel
 ```
 
 ## Optional Dependencies
@@ -81,6 +87,7 @@ After installation, you can verify the dependencies are available by running:
 pkg-config --exists libgtop-2.0 && echo "libgtop-2.0: OK" || echo "libgtop-2.0: MISSING"
 pkg-config --exists g15daemon_client && echo "g15daemon_client: OK" || echo "g15daemon_client: MISSING"
 pkg-config --exists libg15render && echo "libg15render: OK" || echo "libg15render: MISSING"
+pkg-config --exists yaml-0.1 && echo "libyaml: OK" || echo "libyaml: MISSING"
 ```
 
 ## Build Process

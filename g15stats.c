@@ -3167,6 +3167,7 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
     int freq_cur = 1;
     int freq_sum = 0;
     int summary_bar_end = BAR_START;
+    int max_core_load_pct = 0;
 
     int spacer = 1;
     int height = 9;
@@ -3267,6 +3268,13 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
             b_idle[core]  = 100;
         }
 
+        if (b_total[core] > 0) {
+            int core_load_pct = ((b_total[core] - b_idle[core]) * 100) / b_total[core];
+            if (core_load_pct > max_core_load_pct) {
+                max_core_load_pct = core_load_pct;
+            }
+        }
+
         y1 = (core * height) + (core * spacer);
         y2 = y1 + height - 1;
 
@@ -3333,7 +3341,7 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
         if (have_freq) {
             float ghz = ((float) freq_sum) / 1000000.0f;
 
-            snprintf(tmpstr, MAX_LINES, "%0.2fGHz", ghz);
+            snprintf(tmpstr, MAX_LINES, "^%d%% %0.2fGHz", max_core_load_pct, ghz);
             freq_x = G15_LCD_WIDTH - (((int) strlen(tmpstr)) * 6) - 1;
             if (freq_x < BAR_START) {
                 freq_x = BAR_START;

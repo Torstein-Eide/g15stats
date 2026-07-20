@@ -7,28 +7,30 @@ the [Installation Tutorial](installation-tutorial.md).
 
 Before building G15Stats, ensure you have the following dependencies installed:
 
+- **make** and **gcc** (or another C compiler) build tools
 - **libgtop** development packages
 - **libg15daemon_client** development package
 - **libg15render** development package
+- **libyaml** development package (YAML config parsing)
 
 ### Installing Dependencies
 
 #### Debian/Ubuntu
 
 ```bash
-sudo apt-get install libgtop2-dev libg15daemon-client-dev libg15render-dev
+sudo apt-get install make gcc libgtop2-dev libg15daemon-client-dev libg15render-dev libyaml-dev
 ```
 
 #### Fedora/RHEL
 
 ```bash
-sudo dnf install libgtop2-devel libg15daemon-client-devel libg15render-devel
+sudo dnf install make gcc libgtop2-devel libg15daemon-client-devel libg15render-devel libyaml-devel
 ```
 
 #### Arch Linux
 
 ```bash
-sudo pacman -S libgtop libg15daemon libg15render
+sudo pacman -S make gcc libgtop libg15daemon libg15render libyaml
 ```
 
 ## Build from Source

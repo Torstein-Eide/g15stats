@@ -13,19 +13,19 @@ sensor selection and a systemd service.
 
     ```bash
     sudo apt-get update
-    sudo apt-get install libgtop2-dev libg15daemon-client-dev libg15render-dev libyaml-dev
+    sudo apt-get install make gcc libgtop2-dev libg15daemon-client-dev libg15render-dev libyaml-dev
     ```
 
 === "Fedora/RHEL"
 
     ```bash
-    sudo dnf install libgtop2-devel libg15daemon-client-devel libg15render-devel libyaml-devel
+    sudo dnf install make gcc libgtop2-devel libg15daemon-client-devel libg15render-devel libyaml-devel
     ```
 
 === "Arch Linux"
 
     ```bash
-    sudo pacman -S libgtop libg15daemon libg15render libyaml
+    sudo pacman -S make gcc libgtop libg15daemon libg15render libyaml
     ```
 
 ## 2) Build and install
