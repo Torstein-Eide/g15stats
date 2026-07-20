@@ -206,6 +206,7 @@ int gpu_mem_total = 0;
 int gpu_temp_cur = 0;
 int gpu_power_cur_mw = -1;
 int gpu_power_limit_mw = -1;
+int gpu_freq_cur = 0;
 double mem_pressure_some_avg10 = 0.0;
 double mem_pressure_some_avg60 = 0.0;
 double mem_pressure_some_avg300 = 0.0;
@@ -525,7 +526,7 @@ static const char *mode_description(int screen_id, int mode_value) {
             }
             return "MEM PSI: details";
         case SCREEN_SUMMARY:
-            return mode_value ? "SUMMARY: compact" : "SUMMARY: expanded";
+            return mode_value ? "SUMMARY: net/temp" : "SUMMARY: gpu";
         case SCREEN_FREQ_AGG:
             return mode_value ? "FREQ AGG: freq view" : "FREQ AGG: load view";
         case SCREEN_TEMP:
@@ -555,7 +556,7 @@ static const char *mode_short_name(int screen_id, int mode_value) {
             if (mode_value == 2) return "HIST";
             return "BARS";
         case SCREEN_SUMMARY:
-            return mode_value ? "CMPCT" : "EXPND";
+            return mode_value ? "NETTM" : "GPU";
         case SCREEN_FREQ_AGG:
             return mode_value ? "FREQ" : "LOAD";
         case SCREEN_TEMP:
@@ -1239,9 +1240,10 @@ int update_nvidia_gpu_stats(void) {
     int temp = 0;
     int power_cur_mw = -1;
     int power_limit_mw = -1;
+    int freq = 0;
     int ok = 1;
 
-    fp = popen("nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,power.limit --format=csv,noheader,nounits 2>/dev/null", "r");
+    fp = popen("nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,power.limit,clocks.current.graphics --format=csv,noheader,nounits 2>/dev/null", "r");
     if (fp == NULL) {
         return 0;
     }
@@ -1275,6 +1277,9 @@ int update_nvidia_gpu_stats(void) {
             case 5:
                 parse_power_watts_to_mw(value, &power_limit_mw);
                 break;
+            case 6:
+                parse_int_token(value, &freq);
+                break;
             default:
                 break;
         }
@@ -1293,6 +1298,7 @@ int update_nvidia_gpu_stats(void) {
     gpu_temp_cur = temp;
     gpu_power_cur_mw = power_cur_mw;
     gpu_power_limit_mw = power_limit_mw;
+    gpu_freq_cur = freq;
 
     return 1;
 }
@@ -2477,7 +2483,7 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
     cur_shift += shift;
 
     // Network section
-    if (have_nic) {
+    if (have_nic && mode[SCREEN_SUMMARY]) {
         int y;
 
         y = y2 / 2;
@@ -2497,11 +2503,65 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
         id++;
         cur_shift += shift;
     }
+
+    // GPU section
+    if (have_gpu && !mode[SCREEN_SUMMARY]) {
+        if (update_nvidia_gpu_stats()) {
+            int mem_pct = 0;
+            if (gpu_mem_total > 0) {
+                mem_pct = (gpu_mem_used * 100) / gpu_mem_total;
+            }
+            gpu_util_cur = clamp_int(gpu_util_cur, 0, 100);
+            mem_pct = clamp_int(mem_pct, 0, 100);
+
+            int gpu_bar_end = BAR_START;
+
+            drawLine_both(canvas, cur_shift + y1 + move, cur_shift + y2 + move);
+            g15r_drawBar(canvas, BAR_START, cur_shift + y1 + move, BAR_END, cur_shift + y2 + move,
+                         G15_COLOR_BLACK, gpu_util_cur + 1, 100, 4);
+            sprintf(tmpstr, "GPU %3d%%", gpu_util_cur);
+            print_label(canvas, tmpstr, text_shift * id);
+
+            if (gpu_util_cur > 0) {
+                gpu_bar_end = BAR_START + (((BAR_END - BAR_START + 1) * gpu_util_cur) / 100);
+            }
+            if (gpu_freq_cur > 0) {
+                snprintf(tmpstr, MAX_LINES, "%dMHz", gpu_freq_cur);
+                render_right_xor(canvas, tmpstr, gpu_bar_end, text_shift * id + 1);
+            }
+
+            id++;
+            cur_shift += shift;
+
+            if (id < summary_rows) {
+                int vram_bar_end = BAR_START;
+                char used_buf[16], total_buf[16];
+
+                g15r_drawBar(canvas, BAR_START, cur_shift + y1 + move, BAR_END, cur_shift + y2 + move,
+                             G15_COLOR_BLACK, mem_pct + 1, 100, 4);
+                sprintf(tmpstr, "VRM %3d%%", mem_pct);
+                print_label(canvas, tmpstr, text_shift * id);
+
+                if (mem_pct > 0) {
+                    vram_bar_end = BAR_START + (((BAR_END - BAR_START + 1) * mem_pct) / 100);
+                }
+
+                snprintf(used_buf, sizeof(used_buf), "%s", show_bytes((unsigned long) gpu_mem_used * 1024UL * 1024UL));
+                snprintf(total_buf, sizeof(total_buf), "%s", show_bytes((unsigned long) gpu_mem_total * 1024UL * 1024UL));
+                snprintf(tmpstr, MAX_LINES, "%s/%s", used_buf, total_buf);
+                render_right_xor(canvas, tmpstr, vram_bar_end, text_shift * id + 1);
+
+                id++;
+                cur_shift += shift;
+            }
+        }
+    }
+
     if ((have_temp) || (have_fan)) {
         g15_stats_info sensors[NUM_PROBES];
         memset(sensors, 0, sizeof(sensors));
         // Temperature section
-        if ((have_temp) && (id < summary_rows)) {
+        if ((have_temp) && (mode[SCREEN_SUMMARY]) && (id < summary_rows)) {
             int count;
 
             count = get_sensors(sensors, SCREEN_TEMP, sensor_type_temp, sensor_lost_temp, sensor_temp_id);
@@ -3275,35 +3335,24 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
             break;
         case    SCREEN_SUMMARY :
             spacer = 0;
-            if (!mode[SCREEN_SUMMARY]) {
-                summary_rows = summary_has_fan ? 5 : 4;
-                switch (ncpu) {
-                    case 1  :
-                    case 2  :
-                    case 5  :
-                    case 7  :
-                        move    = 1;
-                        height  = 6;
-                        break;
-                    case 3  :
-                    case 6  :
-                        height  = 6;
-                        break;
-                    default :
-                        height  = 8;
-                        break;
-                }
-            } else {
-                summary_rows = summary_has_fan ? 4 : 3;
-                switch (ncpu) {
-                    case 3  :
-                    case 5  :
-                        move    = 1;
-                        break;
-                }
-                height  = 8;
+            summary_rows = summary_has_fan ? 5 : 4;
+            switch (ncpu) {
+                case 1  :
+                case 2  :
+                case 5  :
+                case 7  :
+                    move    = 1;
+                    height  = 6;
+                    break;
+                case 3  :
+                case 6  :
+                    height  = 6;
+                    break;
+                default :
+                    height  = 8;
+                    break;
             }
-                
+
             shift   = height + 1;
             shift2  = (2 * shift);
             break;
@@ -4296,6 +4345,9 @@ void keyboard_watch(void) {
                             if (mode[cycle] > 1) mode[cycle] = 0;
                             break;
                         case SCREEN_MEM:
+                            if (mode[cycle] > 1) mode[cycle] = 0;
+                            break;
+                        case SCREEN_SUMMARY:
                             if (mode[cycle] > 1) mode[cycle] = 0;
                             break;
                         case    SCREEN_BAT:
