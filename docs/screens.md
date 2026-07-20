@@ -35,92 +35,92 @@ Mode 1
 
 ![CPU LOAD mode 1](assets/screens/png/screen_1_mode_1.png)
 
-## Screen 2 - CPU LOAD2
+## Screen 2 - CPU FREQ AGG
 
 Mode 0
 
-![CPU LOAD2 mode 0](assets/screens/png/screen_2_mode_0.png)
+![CPU FREQ AGG mode 0](assets/screens/png/screen_2_mode_0.png)
 
 Mode 1
 
-![CPU LOAD2 mode 1](assets/screens/png/screen_2_mode_1.png)
+![CPU FREQ AGG mode 1](assets/screens/png/screen_2_mode_1.png)
 
-## Screen 3 - CPU FREQ
+## Screen 3 - MEMORY
 
 Mode 0
 
-![CPU FREQ mode 0](assets/screens/png/screen_3_mode_0.png)
+![MEMORY mode 0](assets/screens/png/screen_3_mode_0.png)
 
 Mode 1
 
-![CPU FREQ mode 1](assets/screens/png/screen_3_mode_1.png)
+![MEMORY mode 1](assets/screens/png/screen_3_mode_1.png)
 
-## Screen 4 - CPU FREQ AGG
+## Screen 4 - SWAP
 
 Mode 0
 
-![CPU FREQ AGG mode 0](assets/screens/png/screen_4_mode_0.png)
+![SWAP mode 0](assets/screens/png/screen_4_mode_0.png)
 
 Mode 1
 
-![CPU FREQ AGG mode 1](assets/screens/png/screen_4_mode_1.png)
+![SWAP mode 1](assets/screens/png/screen_4_mode_1.png)
 
-## Screen 5 - MEMORY
+## Screen 5 - NETWORK
 
 Mode 0
 
-![MEMORY mode 0](assets/screens/png/screen_5_mode_0.png)
+![NETWORK mode 0](assets/screens/png/screen_5_mode_0.png)
 
 Mode 1
 
-![MEMORY mode 1](assets/screens/png/screen_5_mode_1.png)
+![NETWORK mode 1](assets/screens/png/screen_5_mode_1.png)
 
-## Screen 6 - SWAP
+## Screen 6 - BATTERY
 
 Mode 0
 
-![SWAP mode 0](assets/screens/png/screen_6_mode_0.png)
+![BATTERY mode 0](assets/screens/png/screen_6_mode_0.png)
 
 Mode 1
 
-![SWAP mode 1](assets/screens/png/screen_6_mode_1.png)
+![BATTERY mode 1](assets/screens/png/screen_6_mode_1.png)
 
-## Screen 7 - NETWORK
+## Screen 7 - TEMPERATURE
 
 Mode 0
 
-![NETWORK mode 0](assets/screens/png/screen_7_mode_0.png)
+![TEMPERATURE mode 0](assets/screens/png/screen_7_mode_0.png)
 
 Mode 1
 
-![NETWORK mode 1](assets/screens/png/screen_7_mode_1.png)
+![TEMPERATURE mode 1](assets/screens/png/screen_7_mode_1.png)
 
-## Screen 8 - BATTERY
+## Screen 8 - FAN
 
 Mode 0
 
-![BATTERY mode 0](assets/screens/png/screen_8_mode_0.png)
+![FAN mode 0](assets/screens/png/screen_8_mode_0.png)
 
 Mode 1
 
-![BATTERY mode 1](assets/screens/png/screen_8_mode_1.png)
+![FAN mode 1](assets/screens/png/screen_8_mode_1.png)
 
-## Screen 9 - TEMPERATURE
+## Screen 9 - GPU
 
 Mode 0
 
-![TEMPERATURE mode 0](assets/screens/png/screen_9_mode_0.png)
+![GPU mode 0](assets/screens/png/screen_9_mode_0.png)
 
 Mode 1
 
-![TEMPERATURE mode 1](assets/screens/png/screen_9_mode_1.png)
+![GPU mode 1](assets/screens/png/screen_9_mode_1.png)
 
-## Screen 10 - FAN
+## Screen 10 - MEM PRESSURE
 
 Mode 0
 
-![FAN mode 0](assets/screens/png/screen_10_mode_0.png)
+![MEM PRESSURE mode 0](assets/screens/png/screen_10_mode_0.png)
 
 Mode 1
 
-![FAN mode 1](assets/screens/png/screen_10_mode_1.png)
+![MEM PRESSURE mode 1](assets/screens/png/screen_10_mode_1.png)
