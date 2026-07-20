@@ -23,21 +23,26 @@ theme:
     - navigation.tabs
     - navigation.sections
     - navigation.expand
+    - navigation.indexes
     - search.highlight
     - search.suggest
     - content.code.copy
 
 nav:
-  - Home: index.md
-  - Installation: installation.md
-  - Usage: usage.md
-  - Options: options.md
-  - Screens: screens.md
-  - Changelog: changelog.md
-  - Requirements: requirements.md
-  - Dependencies: DEPENDENCIES.md
-  - Contributing: contributing.md
-  - Developing:
+  - Home:
+    - index.md
+    - Install: installation.md
+    - Quick start: quick-start.md
+    - What does G15Stats do: what-does-g15stats-do.md
+  - User guide:
+    - Usage: usage.md
+    - Options: options.md
+    - Screens: screens.md
+    - Requirements: requirements.md
+  - Developer guide:
+    - Contributing: contributing.md
+    - Changelog: changelog.md
+    - Dependencies: DEPENDENCIES.md
     - Creating Documentation: Developing/Creating-Documentation.md
     - G15Mirror: Developing/G15Mirror.md
 
