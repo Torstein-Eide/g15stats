@@ -22,5 +22,5 @@ Once running, the separate screens can be switched to as follows:
 
 - **L2**: Previous Screen
 - **L3**: Next Screen
-- **L4**: Alternative Screen (Doesn't work on Swap, Memory and Battery Screen)
+- **L4**: Alternative Screen (Doesn't work on Battery Screen)
 - **L5**: Bottom Info bar mode

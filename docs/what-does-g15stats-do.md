@@ -9,8 +9,7 @@ G15 keyboard's LCD screen.
 - **Summary Screen**: Displays 4 or 5 indicators from CPU/Frequency/Memory/NET/Temperature/Fan Speed/Swap, along with current time
 - **CPU Screen**: Displays graphs of User/System/Nice and Idle time, along with LoadAVG and Uptime
 - **Frequency Screen**: Displays all CPU cores frequency with the total
-- **Memory Screen**: Displays Memory Total & Free, and graph of Used vs Buffered+Cached Memory
-- **Swap Screen**: Displays Used, Free and Total swap space, along with the number of pages currently paged in/out
+- **Memory Screen**: Displays User/Buffer/Cached/Swap usage as bars with absolute values, plus a history graph of Memory vs Swap usage over time
 - **Network Screen**: Displays Total bytes In/Out, history graph, Peak speed
 - **Battery Status Screen**: Displays battery charge data for up to three batteries
 - **Temperature Screen**: Displays temperature status for available sensors

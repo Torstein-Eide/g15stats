@@ -45,15 +45,14 @@
 #define SCREEN_CPU2     1
 #define SCREEN_FREQ_AGG 2
 #define SCREEN_MEM      3
-#define SCREEN_SWAP     4
-#define SCREEN_NET      5
-#define SCREEN_BAT      6
-#define SCREEN_TEMP     7
-#define SCREEN_FAN      8
-#define SCREEN_GPU      9
-#define SCREEN_MEM_PRESSURE 10
+#define SCREEN_NET      4
+#define SCREEN_BAT      5
+#define SCREEN_TEMP     6
+#define SCREEN_FAN      7
+#define SCREEN_GPU      8
+#define SCREEN_MEM_PRESSURE 9
 
-#define	MAX_SCREENS	10
+#define	MAX_SCREENS	9
 
 typedef struct g15_stats_bat_info
 {	

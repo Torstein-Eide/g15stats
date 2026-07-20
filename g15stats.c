@@ -162,6 +162,11 @@ unsigned int mem_pressure_full_hist[MAX_GPU_HIST];
 int mem_pressure_rr_index = 0;
 int mem_pressure_hist_count = 0;
 
+unsigned int mem_used_hist[MAX_GPU_HIST];
+unsigned int mem_swap_hist[MAX_GPU_HIST];
+int mem_hist_rr_index = 0;
+int mem_hist_count = 0;
+
 unsigned long net_max_in    = 100;
 unsigned long net_max_out   = 100;
 
@@ -420,7 +425,6 @@ static const char *screen_name(int screen_id) {
         case SCREEN_CPU2: return "CPU LOAD";
         case SCREEN_FREQ_AGG: return "CPU FREQ AGG";
         case SCREEN_MEM: return "MEMORY";
-        case SCREEN_SWAP: return "SWAP";
         case SCREEN_NET: return "NETWORK";
         case SCREEN_BAT: return "BATTERY";
         case SCREEN_TEMP: return "TEMPERATURE";
@@ -507,6 +511,8 @@ static const char *mode_description(int screen_id, int mode_value) {
                 return "GPU: details";
             }
             return "GPU: usage plot";
+        case SCREEN_MEM:
+            return mode_value ? "MEMORY: history" : "MEMORY: bars";
         case SCREEN_MEM_PRESSURE:
             if (mode_value == 0) {
                 return "MEM PSI: bars";
@@ -542,6 +548,8 @@ static const char *mode_short_name(int screen_id, int mode_value) {
             if (mode_value == 1) return "DETAIL";
             if (mode_value == 2) return "PLOT";
             return "BARS";
+        case SCREEN_MEM:
+            return mode_value ? "HIST" : "BARS";
         case SCREEN_MEM_PRESSURE:
             if (mode_value == 1) return "DETAIL";
             if (mode_value == 2) return "HIST";
@@ -848,7 +856,10 @@ char * show_bytes_short(unsigned long bytes) {
 
 char * show_bytes(unsigned long bytes) {
     static char tmpstr[32];
-    if(bytes>=1024*1024) {
+    if(bytes>=1024UL*1024*1024) {
+      format_float(tmpstr, "%2.1fGB","%luGB", (float)bytes / (1024*1024*1024));
+    }
+    else if(bytes>=1024*1024) {
       format_float(tmpstr, "%2.1fMB","%luMB", (float)bytes / (1024*1024));
     }
     else if(bytes >= 1024) {
@@ -1912,17 +1923,20 @@ void print_sys_load_info(g15canvas *canvas, char *tmpstr) {
 
 void print_mem_info(g15canvas *canvas, char *tmpstr) {
     glibtop_mem mem;
-    glibtop_get_mem(&mem);
-
-    sprintf(tmpstr,"Memory Used %uMB | Memory Total %uMB",(unsigned int)((mem.buffer+mem.cached+mem.user)/(1024*1024)),(unsigned int)(mem.total/(1024*1024)));
-    render_info_text(canvas, tmpstr);
-}
-
-void print_swap_info(g15canvas *canvas, char *tmpstr) {
     glibtop_swap swap;
+
+    if (mode[SCREEN_MEM] >= 1) {
+        /* history-graph mode overlays its own Mem/Swap readout on the plot */
+        return;
+    }
+
+    glibtop_get_mem(&mem);
     glibtop_get_swap(&swap);
 
-    sprintf(tmpstr,"Swap Used %uMB | Swap Avail. %uMB",(unsigned int)(swap.used/(1024*1024)),(unsigned int)(swap.total/(1024*1024)));
+    snprintf(tmpstr, MAX_LINES, "Mem %s/", show_bytes(mem.buffer + mem.cached + mem.user));
+    append_textf(tmpstr, MAX_LINES, "%s | Swap ", show_bytes(mem.total));
+    append_textf(tmpstr, MAX_LINES, "%s/", show_bytes(swap.used));
+    append_textf(tmpstr, MAX_LINES, "%s", show_bytes(swap.total));
     render_info_text(canvas, tmpstr);
 }
 
@@ -2252,53 +2266,112 @@ void print_time_info(g15canvas *canvas, char *tmpstr){
     render_info_text(canvas, tmpstr);
 }
 
-void draw_mem_screen(g15canvas *canvas, char *tmpstr) {
-    glibtop_mem mem;
+static void draw_mem_bar_row(g15canvas *canvas, char *tmpstr, const char *label,
+                              int y1, int y2, int value, int total, int pct) {
+    int bar_end = BAR_START;
 
-    glibtop_get_mem(&mem);
+    sprintf(tmpstr, "%s %2d%%", label, pct);
+    g15r_renderString(canvas, (unsigned char*) tmpstr, 0, G15_TEXT_MED, TEXT_LEFT, y1 + 1);
+    g15r_drawBar(canvas, BAR_START, y1, BAR_END, y2, G15_COLOR_BLACK, value, total, 4);
 
-    int mem_total   = mem.total / 1024;
-    int mem_free    = mem.free / 1024;
-    int mem_user    = mem.user / 1024;
-    int mem_buffer  = mem.buffer / 1024;
-    int mem_cached  = mem.cached / 1024;
+    if (pct > 0) {
+        bar_end = BAR_START + (((BAR_END - BAR_START + 1) * pct) / 100);
+    }
 
-    g15r_clearScreen (canvas, G15_COLOR_WHITE);
-
-    sprintf(tmpstr,"Usr %2.f%%",((float)mem_user/(float)mem_total)*100);
-    g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, TEXT_LEFT, 2);
-    sprintf(tmpstr,"Buf %2.f%%",((float)mem_buffer/(float)mem_total)*100);
-    g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, TEXT_LEFT, 14);
-    sprintf(tmpstr,"Che %2.f%%",((float)mem_cached/(float)mem_total)*100);
-    g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, TEXT_LEFT, 26);
-
-    g15r_drawBar(canvas,BAR_START,1,BAR_END,10,G15_COLOR_BLACK,mem_user,mem_total,4);
-    g15r_drawBar(canvas,BAR_START,12,BAR_END,21,G15_COLOR_BLACK,mem_buffer,mem_total,4);
-    g15r_drawBar(canvas,BAR_START,23,BAR_END,BAR_BOTTOM,G15_COLOR_BLACK,mem_cached,mem_total,4);
-    drawBar_reversed(canvas,BAR_START,1,BAR_END,BAR_BOTTOM,G15_COLOR_BLACK,mem_free,mem_total,5);
-
-    drawLine_both(canvas, 1, BAR_BOTTOM);
-
-    print_vert_label(canvas, "FREE");
+    snprintf(tmpstr, MAX_LINES, "%.1fG", ((float) value) / (1024.0f * 1024.0f));
+    render_right_xor(canvas, tmpstr, bar_end, y1 + 1);
 }
 
-void draw_swap_screen(g15canvas *canvas, char *tmpstr) {
+void draw_mem_screen(g15canvas *canvas, char *tmpstr) {
+    glibtop_mem mem;
     glibtop_swap swap;
+    int mem_total, mem_user, mem_buffer, mem_cached;
+    int swap_used, swap_total;
+    int mem_pct, buf_pct, che_pct, swap_pct;
+    int history_mode;
 
-    g15r_clearScreen (canvas, G15_COLOR_WHITE);
-
+    glibtop_get_mem(&mem);
     glibtop_get_swap(&swap);
 
-    int swap_used   = swap.used / 1024;
-    int swap_total   = swap.total / 1024;
+    mem_total  = mem.total / 1024;
+    mem_user   = mem.user / 1024;
+    mem_buffer = mem.buffer / 1024;
+    mem_cached = mem.cached / 1024;
+    swap_used  = swap.used / 1024;
+    swap_total = swap.total / 1024;
 
-    g15r_renderString (canvas, (unsigned char*)"Swap", 0, G15_TEXT_MED, TEXT_LEFT, 9);
-    sprintf(tmpstr,"Used %u%%",(unsigned int)(((float)swap_used/(float)swap_total)*100));
-    g15r_renderString (canvas, (unsigned char*)tmpstr, 0, G15_TEXT_MED, TEXT_LEFT, 19);
+    mem_pct  = clamp_int(mem_total  > 0 ? (mem_user   * 100) / mem_total  : 0, 0, 100);
+    buf_pct  = clamp_int(mem_total  > 0 ? (mem_buffer * 100) / mem_total  : 0, 0, 100);
+    che_pct  = clamp_int(mem_total  > 0 ? (mem_cached * 100) / mem_total  : 0, 0, 100);
+    swap_pct = clamp_int(swap_total > 0 ? (swap_used  * 100) / swap_total : 0, 0, 100);
 
-    drawAll_both(canvas, 1, BAR_BOTTOM, swap_used, swap_total, swap_total-swap_used, swap_total);
+    g15r_clearScreen(canvas, G15_COLOR_WHITE);
 
-    print_vert_label(canvas, "FREE");
+    mem_used_hist[mem_hist_rr_index] = (unsigned int) mem_pct;
+    mem_swap_hist[mem_hist_rr_index] = (unsigned int) swap_pct;
+    circ_buf_advance(mem_hist_rr_index, mem_hist_count, MAX_GPU_HIST);
+
+    history_mode = (mode[SCREEN_MEM] >= 1);
+
+    if (history_mode) {
+        int i;
+        int start_x;
+        int prev_mem_x = 0, prev_mem_y = 0;
+        int prev_swap_x = 0, prev_swap_y = 0;
+
+        g15r_drawLine(canvas, BAR_START, 31, BAR_END, 31, G15_COLOR_BLACK);
+        g15r_drawLine(canvas, BAR_START, 3, BAR_START, 31, G15_COLOR_BLACK);
+
+        if (mem_hist_count > 0) {
+            int start_idx = mem_hist_rr_index - mem_hist_count;
+            if (start_idx < 0) {
+                start_idx += MAX_GPU_HIST;
+            }
+            start_x = BAR_END - mem_hist_count + 1;
+
+            for (i = 0; i < mem_hist_count; i++) {
+                int idx = (start_idx + i) % MAX_GPU_HIST;
+                int mem_value  = clamp_int((int) mem_used_hist[idx], 0, 100);
+                int swap_value = clamp_int((int) mem_swap_hist[idx], 0, 100);
+                int x = start_x + i;
+                int mem_y  = clamp_int(31 - ((mem_value  * 28) / 100), 3, 31);
+                int swap_y = clamp_int(31 - ((swap_value * 28) / 100), 3, 31);
+
+                g15r_setPixel(canvas, x, mem_y, G15_COLOR_BLACK);
+                if (i > 0) {
+                    g15r_drawLine(canvas, prev_mem_x, prev_mem_y, x, mem_y, G15_COLOR_BLACK);
+                }
+                prev_mem_x = x;
+                prev_mem_y = mem_y;
+
+                g15r_setPixel(canvas, x, swap_y, G15_COLOR_WHITE);
+                if (i > 0) {
+                    g15r_drawLine(canvas, prev_swap_x, prev_swap_y, x, swap_y, G15_COLOR_WHITE);
+                }
+                prev_swap_x = x;
+                prev_swap_y = swap_y;
+            }
+        }
+
+        canvas->mode_xor = 1;
+        snprintf(tmpstr, MAX_LINES, "Mem %d%% %.1f/%.1fG", mem_pct,
+                 ((float) mem_user) / (1024.0f * 1024.0f),
+                 ((float) mem_total) / (1024.0f * 1024.0f));
+        g15r_renderString(canvas, (unsigned char*) tmpstr, 0, G15_TEXT_SMALL, TEXT_LEFT, 1);
+
+        snprintf(tmpstr, MAX_LINES, "Swap %d%% %.1f/%.1fG", swap_pct,
+                 ((float) swap_used) / (1024.0f * 1024.0f),
+                 ((float) swap_total) / (1024.0f * 1024.0f));
+        g15r_renderString(canvas, (unsigned char*) tmpstr, 0, G15_TEXT_SMALL, TEXT_LEFT, 8);
+        canvas->mode_xor = 0;
+
+        return;
+    }
+
+    draw_mem_bar_row(canvas, tmpstr, "Usr", 1, 7, mem_user, mem_total, mem_pct);
+    draw_mem_bar_row(canvas, tmpstr, "Buf", 9, 15, mem_buffer, mem_total, buf_pct);
+    draw_mem_bar_row(canvas, tmpstr, "Che", 17, 23, mem_cached, mem_total, che_pct);
+    draw_mem_bar_row(canvas, tmpstr, "Swp", 25, BAR_BOTTOM, swap_used, swap_total, swap_pct);
 }
 
 static void draw_net_tiered_bar(g15canvas *canvas, int y1, int y2, unsigned long val);
@@ -3969,9 +4042,6 @@ void calc_info_cycle(void) {
             case SCREEN_MEM:
                 info_cycle = SCREEN_MEM;
                 break;
-            case SCREEN_SWAP:
-                info_cycle = SCREEN_SWAP;
-                break;
             case SCREEN_NET:
                 if (have_nic) {
                     info_cycle = SCREEN_NET;
@@ -4040,9 +4110,6 @@ void print_info_label(g15canvas *canvas, char *tmpstr) {
             break;
         case SCREEN_MEM :
             print_mem_info(canvas, tmpstr);
-            break;
-        case SCREEN_SWAP    :
-            print_swap_info(canvas, tmpstr);
             break;
         case SCREEN_NET :
             print_net_peak_info(canvas, tmpstr);
@@ -4219,8 +4286,6 @@ void keyboard_watch(void) {
                         case SCREEN_CPU2:
                             if (mode[cycle] > 1) mode[cycle] = 0;
                             break;
-                        case    SCREEN_SWAP:
-                        case    SCREEN_MEM:
                         case    SCREEN_BAT:
                             change = 0;
                             break;
@@ -4850,9 +4915,6 @@ static void run_loop(g15canvas *canvas, char *tmpstr, int unicore,
                 break;
             case SCREEN_MEM:
                 draw_mem_screen(canvas, tmpstr);
-                break;
-            case SCREEN_SWAP:
-                draw_swap_screen(canvas, tmpstr);
                 break;
             case SCREEN_NET:
             case SCREEN_BAT:

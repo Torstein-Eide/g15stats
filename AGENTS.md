@@ -60,7 +60,7 @@ point. `g15stats.h` holds shared constants (`SCREEN_*` IDs, buffer sizes,
 used for sensor/battery data.
 
 - **Screens**: identified by `SCREEN_*` defines (`SCREEN_SUMMARY` = 0 through
-  `SCREEN_MEM_PRESSURE` = 9, `MAX_SCREENS` = 10). Each has a
+  `SCREEN_MEM_PRESSURE` = 9, `MAX_SCREENS` = 9). Each has a
   `draw_*_screen()` renderer called from the main loop based on the global
   `cycle` variable. Screens can have a `mode[cycle]` (toggled with L4,
   e.g. bar view vs. vertical view) and some react to a global `submode`

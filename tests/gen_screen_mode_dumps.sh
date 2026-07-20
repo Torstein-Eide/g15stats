@@ -10,10 +10,12 @@ png_dir="${workdir}/png"
 converter_src="${top_builddir}/tests/convert_g15_frames.c"
 converter_bin="${workdir}/convert_g15_frames"
 
-screens="${SCREENS:-0 1 2 3 4 5 6 7 8 9 10 11 12}"
+max_screen=$(grep -oP '#define\s+MAX_SCREENS\s+\K[0-9]+' "${top_builddir}/g15stats.h")
+screens="${SCREENS:-$(seq 0 "$max_screen")}"
 modes="${MODES:-0 1}"
 timeout_s="${TIMEOUT_SECONDS:-6}"
 
+rm -rf "$rawdir" "$readable_dir" "$png_dir"
 mkdir -p "$rawdir" "$readable_dir"
 mkdir -p "$png_dir"
 

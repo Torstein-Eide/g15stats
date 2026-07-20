@@ -55,72 +55,62 @@ Mode 1
 
 ![MEMORY mode 1](assets/screens/png/screen_3_mode_1.png)
 
-## Screen 4 - SWAP
+## Screen 4 - NETWORK
 
 Mode 0
 
-![SWAP mode 0](assets/screens/png/screen_4_mode_0.png)
+![NETWORK mode 0](assets/screens/png/screen_4_mode_0.png)
 
 Mode 1
 
-![SWAP mode 1](assets/screens/png/screen_4_mode_1.png)
+![NETWORK mode 1](assets/screens/png/screen_4_mode_1.png)
 
-## Screen 5 - NETWORK
+## Screen 5 - BATTERY
 
 Mode 0
 
-![NETWORK mode 0](assets/screens/png/screen_5_mode_0.png)
+![BATTERY mode 0](assets/screens/png/screen_5_mode_0.png)
 
 Mode 1
 
-![NETWORK mode 1](assets/screens/png/screen_5_mode_1.png)
+![BATTERY mode 1](assets/screens/png/screen_5_mode_1.png)
 
-## Screen 6 - BATTERY
+## Screen 6 - TEMPERATURE
 
 Mode 0
 
-![BATTERY mode 0](assets/screens/png/screen_6_mode_0.png)
+![TEMPERATURE mode 0](assets/screens/png/screen_6_mode_0.png)
 
 Mode 1
 
-![BATTERY mode 1](assets/screens/png/screen_6_mode_1.png)
+![TEMPERATURE mode 1](assets/screens/png/screen_6_mode_1.png)
 
-## Screen 7 - TEMPERATURE
+## Screen 7 - FAN
 
 Mode 0
 
-![TEMPERATURE mode 0](assets/screens/png/screen_7_mode_0.png)
+![FAN mode 0](assets/screens/png/screen_7_mode_0.png)
 
 Mode 1
 
-![TEMPERATURE mode 1](assets/screens/png/screen_7_mode_1.png)
+![FAN mode 1](assets/screens/png/screen_7_mode_1.png)
 
-## Screen 8 - FAN
+## Screen 8 - GPU
 
 Mode 0
 
-![FAN mode 0](assets/screens/png/screen_8_mode_0.png)
+![GPU mode 0](assets/screens/png/screen_8_mode_0.png)
 
 Mode 1
 
-![FAN mode 1](assets/screens/png/screen_8_mode_1.png)
+![GPU mode 1](assets/screens/png/screen_8_mode_1.png)
 
-## Screen 9 - GPU
+## Screen 9 - MEM PRESSURE
 
 Mode 0
 
-![GPU mode 0](assets/screens/png/screen_9_mode_0.png)
+![MEM PRESSURE mode 0](assets/screens/png/screen_9_mode_0.png)
 
 Mode 1
 
-![GPU mode 1](assets/screens/png/screen_9_mode_1.png)
-
-## Screen 10 - MEM PRESSURE
-
-Mode 0
-
-![MEM PRESSURE mode 0](assets/screens/png/screen_10_mode_0.png)
-
-Mode 1
-
-![MEM PRESSURE mode 1](assets/screens/png/screen_10_mode_1.png)
+![MEM PRESSURE mode 1](assets/screens/png/screen_9_mode_1.png)

@@ -28,7 +28,7 @@ Once G15Stats is running, you can navigate between screens using the G15 keyboar
 |--------|--------|
 | **L2** | Previous Screen |
 | **L3** | Next Screen |
-| **L4** | Alternative Screen (Doesn't work on Swap, Memory and Battery Screen) |
+| **L4** | Alternative Screen (Doesn't work on Battery Screen) |
 | **L5** | Bottom Info bar mode |
 
 ## Screen Types
@@ -38,14 +38,13 @@ G15Stats provides multiple screens for monitoring different system metrics:
 1. **Summary Screen** - Overview of key system metrics
 2. **CPU Screen** - Detailed CPU usage graphs
 3. **Frequency Screen** - CPU core frequencies
-4. **Memory Screen** - Memory usage visualization
-5. **Swap Screen** - Swap space monitoring
-6. **Network Screen** - Network traffic statistics
-7. **GPU Screen** - NVIDIA GPU load and memory telemetry (when available)
-8. **Memory Pressure Screen** - Linux PSI memory pressure stats (when available)
-9. **Battery Screen** - Battery charge status
-10. **Temperature Screen** - System temperature sensors
-11. **Fan Speed Screen** - Fan speed monitoring
+4. **Memory Screen** - Memory and swap usage visualization
+5. **Network Screen** - Network traffic statistics
+6. **Battery Screen** - Battery charge status
+7. **Temperature Screen** - System temperature sensors
+8. **Fan Speed Screen** - Fan speed monitoring
+9. **GPU Screen** - NVIDIA GPU load and memory telemetry (when available)
+10. **Memory Pressure Screen** - Linux PSI memory pressure stats (when available)
 
 ## Examples
 
