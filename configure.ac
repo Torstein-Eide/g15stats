@@ -26,5 +26,14 @@ AC_ARG_WITH(gtop-libs,AS_HELP_STRING([--with-gtop-libs],[Path to libgtop librari
 
 CPPFLAGS="$CPPFLAGS $GTOP_CFLAGS $YAML_CFLAGS"
 
+AC_ARG_WITH([systemduserunitdir],
+    AS_HELP_STRING([--with-systemduserunitdir=DIR], [Directory for systemd user unit files (default: query pkg-config, disable with "no")]),
+    [],
+    [with_systemduserunitdir=$($PKG_CONFIG --variable=systemduserunitdir systemd 2>/dev/null)])
+AS_IF([test "x$with_systemduserunitdir" != "xno" && test "x$with_systemduserunitdir" = "x"],
+    [with_systemduserunitdir=/usr/lib/systemd/user])
+AM_CONDITIONAL([HAVE_SYSTEMD_USERUNITDIR], [test "x$with_systemduserunitdir" != "xno"])
+AC_SUBST([systemduserunitdir], [$with_systemduserunitdir])
+
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT

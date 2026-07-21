@@ -19,6 +19,12 @@ noinst_HEADERS = g15stats.h
 docdir = @docdir@
 doc_DATA = README.md AUTHORS COPYING
 
+# systemd user unit (skipped if --with-systemduserunitdir=no or systemd not found)
+systemduserunitdir = @systemduserunitdir@
+if HAVE_SYSTEMD_USERUNITDIR
+systemduserunit_DATA = contrib/init/g15stats.service
+endif
+
 # Libraries to link against
 g15stats_LDADD = $(GTOP_LIBS) $(YAML_LIBS) -lg15daemon_client -lg15render -lpthread -lm -lrt
 
