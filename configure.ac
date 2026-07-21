@@ -8,7 +8,6 @@ AM_INIT_AUTOMAKE([foreign])
 AC_CONFIG_HEADERS([config.h])
  
 AC_PROG_CC
-LT_INIT
 AC_PROG_RANLIB
 
 AC_CHECK_LIB([g15daemon_client], [g15daemon_version],,AC_MSG_ERROR(["libg15daemon_client (or its devel package) not found. please install it"]))

@@ -11,8 +11,7 @@ battery screens. Built with autotools; requires `libgtop-2.0`,
 ## Build Commands
 ```bash
 # Generate configure/Makefile.in (git checkout only; not needed from a
-# release tarball, and not checked into git — requires autoconf, automake,
-# libtool)
+# release tarball, and not checked into git — requires autoconf, automake)
 autoreconf -fi
 
 # Configure and build

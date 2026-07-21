@@ -5,8 +5,8 @@
 Before building G15Stats, ensure you have the following dependencies installed:
 
 - **make** and **gcc** (or another C compiler) build tools
-- **autoconf**, **automake**, and **libtool** (only needed when building from
-  a git checkout — see [Step 1](#step-1-generate-the-configure-script))
+- **autoconf** and **automake** (only needed when building from a git
+  checkout — see [Step 1](#step-1-generate-the-configure-script))
 - **libgtop** development packages
 - **libg15daemon_client** development package
 - **libg15render** development package
@@ -18,19 +18,19 @@ Before building G15Stats, ensure you have the following dependencies installed:
 
     ```bash
     sudo apt-get update
-    sudo apt-get install make gcc autoconf automake libtool libgtop2-dev libg15daemon-client-dev libg15render-dev libyaml-dev
+    sudo apt-get install make gcc autoconf automake libgtop2-dev libg15daemon-client-dev libg15render-dev libyaml-dev
     ```
 
 === "Fedora/RHEL"
 
     ```bash
-    sudo dnf install make gcc autoconf automake libtool libgtop2-devel libg15daemon-client-devel libg15render-devel libyaml-devel
+    sudo dnf install make gcc autoconf automake libgtop2-devel libg15daemon-client-devel libg15render-devel libyaml-devel
     ```
 
 === "Arch Linux"
 
     ```bash
-    sudo pacman -S make gcc autoconf automake libtool libgtop libg15daemon libg15render libyaml
+    sudo pacman -S make gcc autoconf automake libgtop libg15daemon libg15render libyaml
     ```
 
 ## Build from Source

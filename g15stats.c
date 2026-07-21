@@ -178,7 +178,11 @@ unsigned long net_avg_in    = 0;
 unsigned long net_avg_out   = 0;
 int net_ipv6_scroll_tick    = 0;
 
-#define NET_INFO_DISPLAY_TICKS 3
+/* Shared duration (in frame ticks, at the default 1s/frame pace) for
+ * transient splash/legend/banner overlays: the net info splash page, the
+ * overview screen legend, and the mode-change banner. */
+#define TRANSIENT_OVERLAY_TICKS 3
+#define NET_INFO_DISPLAY_TICKS TRANSIENT_OVERLAY_TICKS
 #define MAX_NET_IPV6 6
 
 typedef struct {
@@ -194,7 +198,7 @@ char             net_info_gw[INET_ADDRSTRLEN]          = {0};
 int              net_info_speed                        = 0;
 int              net_info_ticks                        = 0;
 
-#define OVERVIEW_LEGEND_DISPLAY_TICKS (NET_INFO_DISPLAY_TICKS * 4)
+#define OVERVIEW_LEGEND_DISPLAY_TICKS TRANSIENT_OVERLAY_TICKS
 int              overview_legend_ticks                 = 0;
 
 float temp_tot_cur  = 1;
@@ -612,7 +616,7 @@ static void queue_mode_overlay(const char *text, const char *tag) {
 
     snprintf(mode_overlay_text, sizeof(mode_overlay_text), "%s", text);
     snprintf(mode_overlay_tag, sizeof(mode_overlay_tag), "%s", tag ? tag : "");
-    mode_overlay_ticks = 3;
+    mode_overlay_ticks = TRANSIENT_OVERLAY_TICKS;
 }
 
 static void apply_config_value(const char *key,
@@ -2644,7 +2648,7 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
 
 /* ================================================================
  * Overview screen (SCREEN_OVERVIEW)
- * A 3x3 grid giving an at-a-glance view of CPU/MEM/SWP/NET/GPU/VRM/
+ * A 3x3 grid giving an at-a-glance view of CPU/MEM/SWP/GPU/NET/VRM/
  * TEM/FAN/BAT. Unlike every other screen, it doesn't use the shared
  * BAR_START/BAR_END bar-column convention: it partitions the whole
  * 160x43 canvas into 9 equal tiles.
@@ -2772,28 +2776,29 @@ static void draw_overview_grid(g15canvas *canvas, char *tmpstr) {
         }
     }
 
-    /* Row 1: NET / GPU / VRM (NET has no natural 0-100%% scale, so it's
+    /* Row 1: GPU / NET / VRM (NET has no natural 0-100%% scale, so it's
      * plain text, matching draw_summary_screen's IN/OUT convention). */
-    if (have_nic) {
-        if (net_cur_in > net_cur_out) {
-            snprintf(tmpstr, MAX_LINES, "IN %s", show_bytes_short(net_cur_in));
-        } else {
-            snprintf(tmpstr, MAX_LINES, "OUT%s", show_bytes_short(net_cur_out));
-        }
-        draw_overview_tile(canvas, x1[0], y1[1], x2[0], y2[1], -1, tmpstr);
-    } else {
-        snprintf(tmpstr, MAX_LINES, "NET N/A");
-        draw_overview_tile(canvas, x1[0], y1[1], x2[0], y2[1], -1, tmpstr);
-    }
     {
         _Bool gpu_ok = have_gpu && update_nvidia_gpu_stats();
 
         if (gpu_ok) {
             int pct = clamp_int(gpu_util_cur, 0, 100);
             snprintf(tmpstr, MAX_LINES, "GPU %d%%", pct);
-            draw_overview_tile(canvas, x1[1], y1[1], x2[1], y2[1], pct, tmpstr);
+            draw_overview_tile(canvas, x1[0], y1[1], x2[0], y2[1], pct, tmpstr);
         } else {
             snprintf(tmpstr, MAX_LINES, "GPU N/A");
+            draw_overview_tile(canvas, x1[0], y1[1], x2[0], y2[1], -1, tmpstr);
+        }
+
+        if (have_nic) {
+            if (net_cur_in > net_cur_out) {
+                snprintf(tmpstr, MAX_LINES, "IN %s", show_bytes_short(net_cur_in));
+            } else {
+                snprintf(tmpstr, MAX_LINES, "OUT%s", show_bytes_short(net_cur_out));
+            }
+            draw_overview_tile(canvas, x1[1], y1[1], x2[1], y2[1], -1, tmpstr);
+        } else {
+            snprintf(tmpstr, MAX_LINES, "NET N/A");
             draw_overview_tile(canvas, x1[1], y1[1], x2[1], y2[1], -1, tmpstr);
         }
 

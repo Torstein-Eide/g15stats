@@ -28,10 +28,6 @@ endif
 # Libraries to link against
 g15stats_LDADD = $(GTOP_LIBS) $(YAML_LIBS) -lg15daemon_client -lg15render -lpthread -lm -lrt
 
-# Linker flags for g15stats
-# Note: -avoid-version is usually used for libraries, not programs
-g15stats_LDFLAGS = -avoid-version
-
 # Source files for the g15stats program
 g15stats_SOURCES = g15stats.c g15stats.h
 
