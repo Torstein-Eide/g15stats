@@ -1,12 +1,15 @@
 [Unit]
 Description=Logitech G15 Stats
-Requires=g15daemon.service
+# g15daemon.service is a system unit; a user-manager unit can't Requires= it
+# across the manager boundary, so this is an ordering hint only. Make sure
+# g15daemon is running (system service) before enabling this unit.
 After=g15daemon.service
 
 [Service]
+Environment=G15STATS_CONFIG_FILE=%h/.config/g15stats/g15stats.yaml
 ExecStart=/usr/bin/g15stats
 Restart=on-failure
 RestartSec=5
 
 [Install]
-WantedBy=multi-user.target 
+WantedBy=graphical-session.target

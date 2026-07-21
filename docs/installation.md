@@ -142,7 +142,15 @@ This maps to:
 
 ## Run as a systemd service
 
-Create `/etc/systemd/system/g15stats.service`:
+Running from a source checkout without building the `.deb`? Install the
+bundled unit as-is with:
+
+```bash
+./contrib/init/install-user-service.sh
+```
+
+To customize options (e.g. a specific network interface), create your own
+`~/.config/systemd/user/g15stats.service` instead:
 
 !!! warning
     Replace `eth0` in `ExecStart` with your real interface name
@@ -160,21 +168,21 @@ Restart=on-failure
 RestartSec=3
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=graphical-session.target
 ```
 
 Reload and start:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now g15stats.service
+systemctl --user daemon-reload
+systemctl --user enable --now g15stats.service
 ```
 
 Check status and logs:
 
 ```bash
-systemctl status g15stats.service
-journalctl -u g15stats.service -b
+systemctl --user status g15stats.service
+journalctl --user -u g15stats.service -b
 ```
 
 ## Verification checklist
@@ -182,7 +190,7 @@ journalctl -u g15stats.service -b
 - `g15stats -h` prints help without errors.
 - CPU/memory/network pages update on the LCD.
 - Temperature and fan pages show values.
-- `systemctl status g15stats.service` is `active (running)`.
+- `systemctl --user status g15stats.service` is `active (running)`.
 
 ## Config file (optional)
 
