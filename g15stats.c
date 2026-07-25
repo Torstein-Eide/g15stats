@@ -2471,6 +2471,26 @@ void draw_mem_screen(g15canvas *canvas, char *tmpstr) {
 
 static void draw_net_tiered_bar(g15canvas *canvas, int y1, int y2, unsigned long val);
 
+/* Same log10 scale (1M to 1G across 3 decades) as draw_net_tiered_bar /
+ * tiered_graph_height, expressed as a 0-100 fill percentage for tiles that
+ * take a pct bar (e.g. the overview grid). */
+static int net_bar_pct(unsigned long val) {
+    double log_val, frac;
+
+    if (val < 1) {
+        return 0;
+    }
+    log_val = log10((double) val / NET_SCALE_1M);
+    if (log_val < 0.0) {
+        return 0;
+    }
+    frac = log_val / 3.0;
+    if (frac > 1.0) {
+        frac = 1.0;
+    }
+    return (int) (frac * 100);
+}
+
 void print_label(g15canvas *canvas, char *tmpstr, int cur_shift) {
     g15r_renderString(canvas, (unsigned char*) tmpstr, 0, G15_TEXT_MED, TEXT_LEFT, cur_shift + 1);
 }
@@ -2904,14 +2924,15 @@ static void draw_overview_grid(g15canvas *canvas, char *tmpstr) {
             draw_overview_tile(canvas, x1[0], y1[2], x2[0], y2[2], -1, tmpstr);
         } else if (net_split) {
             snprintf(tmpstr, MAX_LINES, "NET IN %s", show_bytes_short(net_cur_in));
-            draw_overview_tile(canvas, x1[0], y1[2], x2[0], y2[2], -1, tmpstr);
+            draw_overview_tile(canvas, x1[0], y1[2], x2[0], y2[2], net_bar_pct(net_cur_in), tmpstr);
         } else {
             if (net_cur_in > net_cur_out) {
                 snprintf(tmpstr, MAX_LINES, "IN %s", show_bytes_short(net_cur_in));
+                draw_overview_tile(canvas, x1[0], y1[2], x2[0], y2[2], net_bar_pct(net_cur_in), tmpstr);
             } else {
                 snprintf(tmpstr, MAX_LINES, "OUT%s", show_bytes_short(net_cur_out));
+                draw_overview_tile(canvas, x1[0], y1[2], x2[0], y2[2], net_bar_pct(net_cur_out), tmpstr);
             }
-            draw_overview_tile(canvas, x1[0], y1[2], x2[0], y2[2], -1, tmpstr);
         }
 
         /* FAN tile: shows NET OUT when FAN is missing (freeing its slot for
@@ -2921,7 +2942,7 @@ static void draw_overview_grid(g15canvas *canvas, char *tmpstr) {
             draw_overview_tile(canvas, x1[1], y1[2], x2[1], y2[2], -1, tmpstr);
         } else if (net_split) {
             snprintf(tmpstr, MAX_LINES, "NET OUT%s", show_bytes_short(net_cur_out));
-            draw_overview_tile(canvas, x1[1], y1[2], x2[1], y2[2], -1, tmpstr);
+            draw_overview_tile(canvas, x1[1], y1[2], x2[1], y2[2], net_bar_pct(net_cur_out), tmpstr);
         } else {
             snprintf(tmpstr, MAX_LINES, "FAN N/A");
             draw_overview_tile(canvas, x1[1], y1[2], x2[1], y2[2], -1, tmpstr);
@@ -2939,7 +2960,7 @@ static void draw_overview_grid(g15canvas *canvas, char *tmpstr) {
             /* Both missing: FAN's tile already took the split, leave blank. */
         } else if (net_split) {
             snprintf(tmpstr, MAX_LINES, "NET OUT%s", show_bytes_short(net_cur_out));
-            draw_overview_tile(canvas, x1[2], y1[2], x2[2], y2[2], -1, tmpstr);
+            draw_overview_tile(canvas, x1[2], y1[2], x2[2], y2[2], net_bar_pct(net_cur_out), tmpstr);
         } else {
             snprintf(tmpstr, MAX_LINES, "BAT N/A");
             draw_overview_tile(canvas, x1[2], y1[2], x2[2], y2[2], -1, tmpstr);
