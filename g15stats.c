@@ -2783,7 +2783,7 @@ static int read_battery_info(g15_stats_bat_info *bats, long *tot_cur_charge, lon
  * (re-)entered (see the trigger in run_loop). */
 static void draw_overview_legend(g15canvas *canvas) {
     static const char *left[] = {
-        "CPU=Processor", "MEM=Memory", "SWP=Swap", "NET=Network", "GPU=GPU load"
+        "CPU=Processor", "MEM=Memory", "SWP=Swap", "NET=Network B/s", "GPU=GPU load"
     };
     static const char *right[] = {
         "VRM=GPU mem", "TEM=Temperature", "FAN=Fan speed", "BAT=Battery"
