@@ -73,6 +73,35 @@ This is a simple stats client showing graphs for CPU, MEM & Swap usage, Network 
 
 int g15screen_fd;
 
+/* libgtop is not thread-safe: the main render thread and network_watch()
+ * both call glibtop_get_* concurrently, which without serialization corrupts
+ * the heap (observed as intermittent "double free or corruption" aborts). */
+static pthread_mutex_t glibtop_call_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void locked_glibtop_get_mem(glibtop_mem *mem) {
+    pthread_mutex_lock(&glibtop_call_mutex);
+    glibtop_get_mem(mem);
+    pthread_mutex_unlock(&glibtop_call_mutex);
+}
+
+static void locked_glibtop_get_swap(glibtop_swap *swap) {
+    pthread_mutex_lock(&glibtop_call_mutex);
+    glibtop_get_swap(swap);
+    pthread_mutex_unlock(&glibtop_call_mutex);
+}
+
+static void locked_glibtop_get_cpu(glibtop_cpu *cpu) {
+    pthread_mutex_lock(&glibtop_call_mutex);
+    glibtop_get_cpu(cpu);
+    pthread_mutex_unlock(&glibtop_call_mutex);
+}
+
+static void locked_glibtop_get_netload(glibtop_netload *netload, const char *interface) {
+    pthread_mutex_lock(&glibtop_call_mutex);
+    glibtop_get_netload(netload, interface);
+    pthread_mutex_unlock(&glibtop_call_mutex);
+}
+
 static volatile sig_atomic_t keep_running = 1;
 
 static void handle_signal(int sig) {
@@ -1266,6 +1295,22 @@ int probe_nvidia_gpu(void) {
     return trim_whitespace(line)[0] != '\0';
 }
 
+static _Bool nvidia_gpu_stats_warned = 0;
+
+static void log_nvidia_gpu_stats_failure(void) {
+    if (!nvidia_gpu_stats_warned) {
+        fprintf(stderr, "[g15stats] nvidia-smi query failed; GPU stats unavailable until it recovers\n");
+        nvidia_gpu_stats_warned = 1;
+    }
+}
+
+static void log_nvidia_gpu_stats_recovery(void) {
+    if (nvidia_gpu_stats_warned) {
+        fprintf(stderr, "[g15stats] nvidia-smi query recovered\n");
+        nvidia_gpu_stats_warned = 0;
+    }
+}
+
 int update_nvidia_gpu_stats(void) {
     FILE *fp;
     char line[256];
@@ -1282,11 +1327,13 @@ int update_nvidia_gpu_stats(void) {
 
     fp = popen("nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,power.limit,clocks.current.graphics --format=csv,noheader,nounits 2>/dev/null", "r");
     if (fp == NULL) {
+        log_nvidia_gpu_stats_failure();
         return 0;
     }
 
     if (fgets(line, sizeof(line), fp) == NULL) {
         pclose(fp);
+        log_nvidia_gpu_stats_failure();
         return 0;
     }
     pclose(fp);
@@ -1326,8 +1373,11 @@ int update_nvidia_gpu_stats(void) {
     }
 
     if (!ok || field_index < 4) {
+        log_nvidia_gpu_stats_failure();
         return 0;
     }
+
+    log_nvidia_gpu_stats_recovery();
 
     gpu_util_cur = util;
     gpu_mem_used = mem_used;
@@ -1975,8 +2025,8 @@ void print_mem_info(g15canvas *canvas, char *tmpstr) {
         return;
     }
 
-    glibtop_get_mem(&mem);
-    glibtop_get_swap(&swap);
+    locked_glibtop_get_mem(&mem);
+    locked_glibtop_get_swap(&swap);
 
     snprintf(tmpstr, MAX_LINES, "Mem %s/", show_bytes(mem.buffer + mem.cached + mem.user));
     append_textf(tmpstr, MAX_LINES, "%s | Swap ", show_bytes(mem.total));
@@ -2335,8 +2385,8 @@ void draw_mem_screen(g15canvas *canvas, char *tmpstr) {
     int mem_pct, buf_pct, che_pct, swap_pct;
     int history_mode;
 
-    glibtop_get_mem(&mem);
-    glibtop_get_swap(&swap);
+    locked_glibtop_get_mem(&mem);
+    locked_glibtop_get_swap(&swap);
 
     mem_total  = mem.total / 1024;
     mem_user   = mem.user / 1024;
@@ -2475,7 +2525,7 @@ int sensor_values_have_nonzero(const g15_stats_info *sensors, int count) {
 void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int move, int shift, int text_shift, int id) {
     // Memory section
     glibtop_mem mem;
-    glibtop_get_mem(&mem);
+    locked_glibtop_get_mem(&mem);
 
     int mem_total = (mem.total / 1024);
     int mem_used = (mem.user / 1024);
@@ -2629,7 +2679,7 @@ void draw_summary_screen(g15canvas *canvas, char *tmpstr, int y1, int y2, int mo
     if (id < summary_rows) {
         glibtop_swap swap;
 
-        glibtop_get_swap(&swap);
+        locked_glibtop_get_swap(&swap);
 
         int swap_used = swap.used / 1024;
         int swap_total = swap.total / 1024;
@@ -2663,7 +2713,7 @@ static int overview_cpu_percent(void) {
     glibtop_cpu cpu;
     unsigned long total, idle, b_total, b_idle;
 
-    glibtop_get_cpu(&cpu);
+    locked_glibtop_get_cpu(&cpu);
     total = (unsigned long) cpu.total;
     idle  = (unsigned long) cpu.idle;
 
@@ -2753,7 +2803,7 @@ static void draw_overview_grid(g15canvas *canvas, char *tmpstr) {
     }
     {
         glibtop_mem mem;
-        glibtop_get_mem(&mem);
+        locked_glibtop_get_mem(&mem);
         if (mem.total > 0) {
             int pct = clamp_int((int) (((double) mem.user / (double) mem.total) * 100), 0, 100);
             snprintf(tmpstr, MAX_LINES, "MEM %d%%", pct);
@@ -2765,7 +2815,7 @@ static void draw_overview_grid(g15canvas *canvas, char *tmpstr) {
     }
     {
         glibtop_swap swap;
-        glibtop_get_swap(&swap);
+        locked_glibtop_get_swap(&swap);
         if (swap.total > 0) {
             int pct = clamp_int((int) (((double) swap.used / (double) swap.total) * 100), 0, 100);
             snprintf(tmpstr, MAX_LINES, "SWP %d%%", pct);
@@ -2776,8 +2826,7 @@ static void draw_overview_grid(g15canvas *canvas, char *tmpstr) {
         }
     }
 
-    /* Row 1: GPU / NET / VRM (NET has no natural 0-100%% scale, so it's
-     * plain text, matching draw_summary_screen's IN/OUT convention). */
+    /* Row 1: GPU / VRM / TEM */
     {
         _Bool gpu_ok = have_gpu && update_nvidia_gpu_stats();
 
@@ -2790,77 +2839,107 @@ static void draw_overview_grid(g15canvas *canvas, char *tmpstr) {
             draw_overview_tile(canvas, x1[0], y1[1], x2[0], y2[1], -1, tmpstr);
         }
 
-        if (have_nic) {
+        if (gpu_ok && gpu_mem_total > 0) {
+            int pct = clamp_int((gpu_mem_used * 100) / gpu_mem_total, 0, 100);
+            snprintf(tmpstr, MAX_LINES, "VRM %d%%", pct);
+            draw_overview_tile(canvas, x1[1], y1[1], x2[1], y2[1], pct, tmpstr);
+        } else {
+            snprintf(tmpstr, MAX_LINES, "VRM N/A");
+            draw_overview_tile(canvas, x1[1], y1[1], x2[1], y2[1], -1, tmpstr);
+        }
+
+        {
+            g15_stats_info sensors[NUM_PROBES];
+            int count = 0;
+
+            if (have_temp) {
+                memset(sensors, 0, sizeof(sensors));
+                count = get_sensors(sensors, SCREEN_TEMP, sensor_type_temp, sensor_lost_temp, sensor_temp_id);
+            }
+            if (have_temp && count && temp_tot_max > 0) {
+                int pct = clamp_int((int) ((temp_tot_cur / temp_tot_max) * 100), 0, 100);
+                snprintf(tmpstr, MAX_LINES, "TEM %.0f\xb0", temp_tot_cur);
+                draw_overview_tile(canvas, x1[2], y1[1], x2[2], y2[1], pct, tmpstr);
+            } else {
+                snprintf(tmpstr, MAX_LINES, "TEM N/A");
+                draw_overview_tile(canvas, x1[2], y1[1], x2[2], y2[1], -1, tmpstr);
+            }
+        }
+    }
+
+    /* Row 2: NET / FAN / BAT. NET has no natural 0-100%% scale, so it's
+     * plain text, matching draw_summary_screen's IN/OUT convention. FAN and
+     * BAT availability are resolved first (without drawing) so a missing
+     * one can free its tile for a NET IN / NET OUT split. */
+    {
+        g15_stats_info fan_sensors[NUM_PROBES];
+        int fan_count = 0;
+        _Bool fan_ok;
+
+        g15_stats_bat_info bats[NUM_BATS];
+        long bat_cur_charge = 0, bat_max_charge = 0;
+        int bat_count = 0;
+        _Bool bat_ok;
+
+        _Bool net_split;
+
+        if (have_fan) {
+            memset(fan_sensors, 0, sizeof(fan_sensors));
+            fan_count = get_sensors(fan_sensors, SCREEN_FAN, sensor_type_fan, sensor_lost_fan, sensor_fan_id);
+            if (!sensor_fan_forced && !sensor_values_have_nonzero(fan_sensors, fan_count)) {
+                fan_count = 0;
+            }
+        }
+        fan_ok = have_fan && fan_count;
+
+        if (have_bat) {
+            bat_count = read_battery_info(bats, &bat_cur_charge, &bat_max_charge);
+        }
+        bat_ok = have_bat && bat_count && bat_max_charge > 0;
+
+        net_split = have_nic && (!fan_ok || !bat_ok);
+
+        if (!have_nic) {
+            snprintf(tmpstr, MAX_LINES, "NET N/A");
+            draw_overview_tile(canvas, x1[0], y1[2], x2[0], y2[2], -1, tmpstr);
+        } else if (net_split) {
+            snprintf(tmpstr, MAX_LINES, "NET IN %s", show_bytes_short(net_cur_in));
+            draw_overview_tile(canvas, x1[0], y1[2], x2[0], y2[2], -1, tmpstr);
+        } else {
             if (net_cur_in > net_cur_out) {
                 snprintf(tmpstr, MAX_LINES, "IN %s", show_bytes_short(net_cur_in));
             } else {
                 snprintf(tmpstr, MAX_LINES, "OUT%s", show_bytes_short(net_cur_out));
             }
-            draw_overview_tile(canvas, x1[1], y1[1], x2[1], y2[1], -1, tmpstr);
-        } else {
-            snprintf(tmpstr, MAX_LINES, "NET N/A");
-            draw_overview_tile(canvas, x1[1], y1[1], x2[1], y2[1], -1, tmpstr);
-        }
-
-        if (gpu_ok && gpu_mem_total > 0) {
-            int pct = clamp_int((gpu_mem_used * 100) / gpu_mem_total, 0, 100);
-            snprintf(tmpstr, MAX_LINES, "VRM %d%%", pct);
-            draw_overview_tile(canvas, x1[2], y1[1], x2[2], y2[1], pct, tmpstr);
-        } else {
-            snprintf(tmpstr, MAX_LINES, "VRM N/A");
-            draw_overview_tile(canvas, x1[2], y1[1], x2[2], y2[1], -1, tmpstr);
-        }
-    }
-
-    /* Row 2: TEM / FAN / BAT */
-    {
-        g15_stats_info sensors[NUM_PROBES];
-        int count = 0;
-
-        if (have_temp) {
-            memset(sensors, 0, sizeof(sensors));
-            count = get_sensors(sensors, SCREEN_TEMP, sensor_type_temp, sensor_lost_temp, sensor_temp_id);
-        }
-        if (have_temp && count && temp_tot_max > 0) {
-            int pct = clamp_int((int) ((temp_tot_cur / temp_tot_max) * 100), 0, 100);
-            snprintf(tmpstr, MAX_LINES, "TEM %.0f\xb0", temp_tot_cur);
-            draw_overview_tile(canvas, x1[0], y1[2], x2[0], y2[2], pct, tmpstr);
-        } else {
-            snprintf(tmpstr, MAX_LINES, "TEM N/A");
             draw_overview_tile(canvas, x1[0], y1[2], x2[0], y2[2], -1, tmpstr);
         }
-    }
-    {
-        g15_stats_info sensors[NUM_PROBES];
-        int count = 0;
 
-        if (have_fan) {
-            memset(sensors, 0, sizeof(sensors));
-            count = get_sensors(sensors, SCREEN_FAN, sensor_type_fan, sensor_lost_fan, sensor_fan_id);
-            if (!sensor_fan_forced && !sensor_values_have_nonzero(sensors, count)) {
-                count = 0;
-            }
-        }
-        if (have_fan && count) {
+        /* FAN tile: shows NET OUT when FAN is missing (freeing its slot for
+         * the split). */
+        if (fan_ok) {
             snprintf(tmpstr, MAX_LINES, "FAN %.0f", fan_tot_cur);
+            draw_overview_tile(canvas, x1[1], y1[2], x2[1], y2[2], -1, tmpstr);
+        } else if (net_split) {
+            snprintf(tmpstr, MAX_LINES, "NET OUT%s", show_bytes_short(net_cur_out));
             draw_overview_tile(canvas, x1[1], y1[2], x2[1], y2[2], -1, tmpstr);
         } else {
             snprintf(tmpstr, MAX_LINES, "FAN N/A");
             draw_overview_tile(canvas, x1[1], y1[2], x2[1], y2[2], -1, tmpstr);
         }
-    }
-    {
-        g15_stats_bat_info bats[NUM_BATS];
-        long cur_charge = 0, max_charge = 0;
-        int count = 0;
 
-        if (have_bat) {
-            count = read_battery_info(bats, &cur_charge, &max_charge);
-        }
-        if (have_bat && count && max_charge > 0) {
-            int pct = clamp_int((int) (((double) cur_charge / (double) max_charge) * 100), 0, 100);
+        /* BAT tile: normal reading when present. When missing, its slot was
+         * already used for the split via FAN's tile if FAN was also
+         * missing -- in that case leave this tile blank. Otherwise (FAN
+         * present, BAT missing) BAT's own slot carries NET OUT. */
+        if (bat_ok) {
+            int pct = clamp_int((int) (((double) bat_cur_charge / (double) bat_max_charge) * 100), 0, 100);
             snprintf(tmpstr, MAX_LINES, "BAT %d%%", pct);
             draw_overview_tile(canvas, x1[2], y1[2], x2[2], y2[2], pct, tmpstr);
+        } else if (!fan_ok) {
+            /* Both missing: FAN's tile already took the split, leave blank. */
+        } else if (net_split) {
+            snprintf(tmpstr, MAX_LINES, "NET OUT%s", show_bytes_short(net_cur_out));
+            draw_overview_tile(canvas, x1[2], y1[2], x2[2], y2[2], -1, tmpstr);
         } else {
             snprintf(tmpstr, MAX_LINES, "BAT N/A");
             draw_overview_tile(canvas, x1[2], y1[2], x2[2], y2[2], -1, tmpstr);
@@ -2940,7 +3019,7 @@ void draw_cpu_screen_unicore_logic(g15canvas *canvas, glibtop_cpu cpu, char *tmp
 
 void draw_cpu_screen_unicore(g15canvas *canvas, char *tmpstr, int drawgraph, int printlabels) {
     glibtop_cpu cpu;
-    glibtop_get_cpu(&cpu);
+    locked_glibtop_get_cpu(&cpu);
 
     draw_cpu_screen_unicore_logic(canvas, cpu, tmpstr, drawgraph, printlabels, 0);
 }
@@ -3546,7 +3625,7 @@ void draw_cpu_screen_multicore(g15canvas *canvas, char *tmpstr, int unicore) {
 
     ncpumax = ncpu;
 
-    glibtop_get_cpu(&cpu);
+    locked_glibtop_get_cpu(&cpu);
 
     switch (cycle) {
         case    SCREEN_SUMMARY  :
@@ -4010,7 +4089,7 @@ void draw_net_screen(g15canvas *canvas, char *tmpstr, char *interface) {
     }
 
     glibtop_netload netload;
-    glibtop_get_netload(&netload, interface);
+    locked_glibtop_get_netload(&netload, interface);
     draw_net_stream(canvas, 0, 16.0f, net_max_in);   // in
     draw_net_stream(canvas, 1, 34.0f, net_max_out);  // out
     g15r_drawLine (canvas, 52, 0, 52, 34, G15_COLOR_BLACK);
@@ -4703,7 +4782,7 @@ void network_watch(void *iface) {
   glibtop_netload netload;
   int mac=0;
 
-  glibtop_get_netload(&netload,interface);
+  locked_glibtop_get_netload(&netload,interface);
   for(i=0;i<8;i++)
     mac+=netload.hwaddress[i];
   if(!mac) {
@@ -4763,7 +4842,7 @@ void network_watch(void *iface) {
         previous_in = netload.bytes_in;
         previous_out = netload.bytes_out;
         sleep(1);
-        glibtop_get_netload(&netload, interface);
+        locked_glibtop_get_netload(&netload, interface);
     }
 }
 
@@ -4962,7 +5041,7 @@ int auto_discover_nic(unsigned char *interface, size_t interface_size) {
             have_fallback = 1;
         }
 
-        glibtop_get_netload(&netload, entry->d_name);
+        locked_glibtop_get_netload(&netload, entry->d_name);
         for (i = 0; i < 8; i++) {
             mac += netload.hwaddress[i];
         }
@@ -5200,7 +5279,7 @@ static void init_hardware(unsigned char *interface, size_t interface_size,
         update_net_info((const char *)interface);
 
     have_gpu = probe_nvidia_gpu();
-    if (!have_gpu && debug_enabled)
+    if (!have_gpu)
         fprintf(stderr, "[g15stats] nvidia-smi unavailable or no NVIDIA GPU detected; GPU screen disabled\n");
 
     have_mem_pressure = update_memory_pressure_stats();
